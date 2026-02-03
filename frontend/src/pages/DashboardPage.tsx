@@ -2,9 +2,9 @@
  * Dashboard Page Component
  * Protected page displaying user data from backend
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import useAxios from '../hooks/useAxios';
+import axiosInstance from '../api/axiosInstance';
 import { API_ENDPOINTS } from '../config/api.config';
 import type { DashboardResponse, DashboardData } from '../types/api.types';
 
@@ -14,16 +14,16 @@ const DashboardPage: React.FC = () => {
   const [error, setError] = useState<string>('');
   
   const { logout } = useAuth();
-  const axios = useAxios();
 
   /**
    * Fetch dashboard data from protected endpoint
    * Token refresh is handled automatically by axios interceptor
    */
-  const fetchDashboardData = useCallback(async (): Promise<void> => {
+  const fetchDashboardData = async (): Promise<void> => {
     try {
       setIsLoading(true);
-      const response = await axios.get<DashboardResponse>(API_ENDPOINTS.DASHBOARD);
+      setError('');
+      const response = await axiosInstance.get<DashboardResponse>(API_ENDPOINTS.DASHBOARD);
       
       if (response.data.success && response.data.data) {
         setDashboardData(response.data.data);
@@ -34,11 +34,11 @@ const DashboardPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [axios]);
+  };
 
   useEffect(() => {
     fetchDashboardData();
-  }, [fetchDashboardData]);
+  }, []); // Empty dependency array - fetch only once on mount
 
   const handleLogout = async (): Promise<void> => {
     await logout();

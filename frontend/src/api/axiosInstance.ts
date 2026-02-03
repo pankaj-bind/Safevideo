@@ -4,11 +4,12 @@
  * 
  * Security: Uses withCredentials for HttpOnly cookie transmission
  */
-import axios, { 
-  AxiosError, 
-  AxiosInstance, 
+import axios from 'axios';
+import type {
+  AxiosError,
+  AxiosInstance,
   AxiosResponse,
-  InternalAxiosRequestConfig 
+  InternalAxiosRequestConfig,
 } from 'axios';
 import { API_CONFIG, API_ENDPOINTS } from '../config/api.config';
 

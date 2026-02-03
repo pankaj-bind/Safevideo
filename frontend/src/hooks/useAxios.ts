@@ -4,7 +4,7 @@
  */
 import { useCallback } from 'react';
 import axiosInstance from '../api/axiosInstance';
-import { AxiosRequestConfig, AxiosResponse } from 'axios';
+import type { AxiosRequestConfig, AxiosResponse } from 'axios';
 
 interface UseAxiosReturn {
   get: <T>(url: string, config?: AxiosRequestConfig) => Promise<AxiosResponse<T>>;
