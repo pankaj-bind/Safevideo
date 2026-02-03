@@ -28,8 +28,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create non-root user for security
-RUN useradd --create-home --shell /bin/bash appuser \
-    && chown -R appuser:appuser /app
+RUN useradd --create-home --shell /bin/bash appuser
+
+# Set permissions BEFORE switching to appuser
+# This ensures the mounted db.sqlite3 and other files are writable
+RUN chown -R appuser:appuser /app \
+    && chmod -R 755 /app \
+    && touch /app/db.sqlite3 \
+    && chmod 666 /app/db.sqlite3
+
+# Switch to non-root user
 USER appuser
 
 # Expose port
