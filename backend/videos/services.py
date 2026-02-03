@@ -27,7 +27,11 @@ class DriveService:
         self.service = build('drive', 'v3', credentials=self.creds)
 
     def upload_file(self, file_path, title):
-        file_metadata = {'name': title}
+        folder_id = getattr(settings, 'GOOGLE_DRIVE_FOLDER_ID', None)
+        file_metadata = {
+            'name': title,
+            'parents': [folder_id] if folder_id else []
+        }
         media = MediaFileUpload(file_path, mimetype='video/mp4', resumable=True)
         file = self.service.files().create(body=file_metadata, media_body=media, fields='id').execute()
         return file.get('id')
