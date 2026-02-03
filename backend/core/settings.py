@@ -104,9 +104,23 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://localhost:5174',
     'http://127.0.0.1:5174',
+    'http://localhost',        # Docker frontend (port 80)
+    'http://127.0.0.1',        # Docker frontend (port 80)
+    'http://localhost:80',
+    'http://127.0.0.1:80',
 ]
 
 CORS_ALLOW_CREDENTIALS = True  # Required for cookies to be sent cross-origin
+
+# CSRF Trusted Origins - Required for Login/Signup in Docker
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost',
+    'http://127.0.0.1',
+    'http://localhost:80',
+    'http://127.0.0.1:80',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+]
 
 CORS_ALLOW_HEADERS = [
     'accept',
