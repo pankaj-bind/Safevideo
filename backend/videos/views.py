@@ -51,35 +51,52 @@ class VideoListView(generics.ListAPIView):
         return Response(videos)
 
 class StreamVideoView(APIView):
-    permission_classes = [permissions.AllowAny] # Allow HTML5 <video> to access it freely or use token if needed. User asked for AllowAny.
+    permission_classes = [permissions.AllowAny]
 
     def get(self, request, file_id):
+        """Stream video from Google Drive using generator-based approach.
+        
+        This method uses DriveService.get_file_iterator() which yields chunks
+        progressively, avoiding memory issues with large files (373MB+).
+        """
         try:
             drive_service = DriveService()
-            # Google Drive API doesn't easily support range requests with the basic download
-            # For a true streaming experience with seeking, you need to handle range headers.
-            # However, for this simplified requirement, we will pipe the file content.
-            # CAUTION: Loading full file into memory is bad for large files. 
-            # Ideally we use the `get_media` with `MediaIoBaseDownload` as a iterator or redirect to a signed URL using `webContentLink` if public.
-            # But the requirement says "Streams the file bytes", so let's try to pass the iterator.
             
-            # Since DriveService.get_file_stream returns BytesIO (in memory), this is not true streaming of large files.
-            # Let's adjust DriveService to be more generator-friendly if possible, or just stream the BytesIO for now given constraints.
+            # Get the file iterator (generator) that yields chunks
+            file_iterator = drive_service.get_file_iterator(file_id)
             
-            # Refined approach: Use the request to get a raw stream
+            # StreamingHttpResponse accepts an iterator and streams chunks to client
+            response = StreamingHttpResponse(file_iterator, content_type='video/mp4')
+            response['Content-Disposition'] = 'inline; filename="video.mp4"'
             
-            request_drive = drive_service.service.files().get_media(fileId=file_id)
+            # Note: We intentionally do NOT set Content-Length header here because:
+            # 1. Getting file size requires an extra API call
+            # 2. Browser can still play videos without it (just can't show total duration initially)
+            # 3. Setting incorrect Content-Length can cause playback issues
             
-            # Direct streaming from Google Drive is tricky with the python client lib which wants to handle chunks itself.
-            # A common workaround is to redirect if the file is public, or proxy chunks.
-            # Let's read into memory for the MVP as per `services.py` implementation, 
-            # observing that `get_file_stream` loads fully into file_io.
-            
-            file_io = drive_service.get_file_stream(file_id)
-            
-            response = HttpResponse(file_io, content_type='video/mp4')
-            response['Content-Disposition'] = f'inline; filename="video.mp4"'
             return response
 
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
+
+
+class VideoDeleteView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, pk):
+        try:
+            video = Video.objects.get(id=pk, user=request.user)
+            
+            # Delete from Google Drive if file_id exists
+            if video.file_id:
+                try:
+                    drive_service = DriveService()
+                    drive_service.delete_file(video.file_id)
+                except Exception as e:
+                    print(f"Warning: Could not delete from Drive: {e}")
+            
+            video.delete()
+            return Response({'message': 'Video deleted successfully'}, status=status.HTTP_204_NO_CONTENT)
+        
+        except Video.DoesNotExist:
+            return Response({'error': 'Video not found'}, status=status.HTTP_404_NOT_FOUND)

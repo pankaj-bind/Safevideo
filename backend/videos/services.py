@@ -11,6 +11,7 @@ from django.conf import settings
 from django.db import connection, close_old_connections
 
 from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request, AuthorizedSession
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
@@ -27,7 +28,10 @@ class DriveService:
             self.creds = Credentials.from_authorized_user_file(TOKEN_PATH, ['https://www.googleapis.com/auth/drive.file'])
         
         if not self.creds or not self.creds.valid:
-            raise Exception("Google Drive credentials not valid. Run setup_auth.py first.")
+            if self.creds and self.creds.expired and self.creds.refresh_token:
+                self.creds.refresh(Request())
+            else:
+                raise Exception("Google Drive credentials not valid. Run setup_auth.py first.")
         
         self.service = build('drive', 'v3', credentials=self.creds)
 
@@ -46,6 +50,7 @@ class DriveService:
         return file.get('id')
 
     def get_file_stream(self, file_id):
+        """Legacy method - kept for backward compatibility. Loads entire file into memory."""
         request = self.service.files().get_media(fileId=file_id)
         file_io = io.BytesIO()
         downloader = MediaIoBaseDownload(file_io, request)
@@ -55,6 +60,31 @@ class DriveService:
         
         file_io.seek(0)
         return file_io
+
+    def get_file_iterator(self, file_id):
+        """Yields chunks of data from Google Drive without loading file into memory.
+        
+        This is the recommended method for streaming large files as it:
+        - Doesn't load the entire file into memory
+        - Streams data progressively to the client
+        - Handles large files (100MB+) without timeout issues
+        """
+        # Refresh auth if needed
+        if self.creds.expired and self.creds.refresh_token:
+            self.creds.refresh(Request())
+        
+        # Create authorized session for streaming
+        session = AuthorizedSession(self.creds)
+        url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
+        
+        # stream=True prevents loading entire response into memory
+        response = session.get(url, stream=True)
+        response.raise_for_status()
+        
+        # Yield 1MB chunks to the caller
+        for chunk in response.iter_content(chunk_size=1 * 1024 * 1024):
+            if chunk:
+                yield chunk
 
     def delete_file(self, file_id):
         try:
