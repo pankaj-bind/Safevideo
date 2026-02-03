@@ -1,0 +1,9 @@
+# Frontend-specific Docker Ignore
+node_modules/
+dist/
+.git
+.gitignore
+*.md
+.idea/
+.vscode/
+*.log

@@ -1,0 +1,68 @@
+# =============================================================================
+# Safevideo Docker Compose
+# Production-ready setup with Django backend + React frontend
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # Backend: Django + Gunicorn + FFmpeg
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: safevideo-backend
+    restart: unless-stopped
+    environment:
+      - DEBUG=False
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-your-production-secret-key-change-me}
+      - ALLOWED_HOSTS=localhost,127.0.0.1,backend
+      # Disable SSL redirects for local production testing (behind HTTP Nginx)
+      - SECURE_SSL_REDIRECT=False
+      - SESSION_COOKIE_SECURE=False
+      - CSRF_COOKIE_SECURE=False
+      - AUTH_COOKIE_SECURE=False
+    volumes:
+      # Persist SQLite database
+      - ./backend/db.sqlite3:/app/db.sqlite3
+      # Mount Google Drive credentials
+      - ./backend/token.json:/app/token.json:ro
+      - ./backend/credentials.json:/app/credentials.json:ro
+      # Mount environment config
+      - ./backend/.env:/app/.env:ro
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/admin/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  # Frontend: React (Vite) served by Nginx
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: safevideo-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# =============================================================================
+# Networks (optional, docker-compose creates default bridge network)
+# =============================================================================
+networks:
+  default:
+    name: safevideo-network

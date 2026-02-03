@@ -178,7 +178,8 @@ SIMPLE_JWT = {
 # =============================================================================
 AUTH_COOKIE = 'access_token'
 AUTH_COOKIE_REFRESH = 'refresh_token'
-AUTH_COOKIE_SECURE = not DEBUG  # True in production (HTTPS only)
+# Allow overriding secure cookie setting from env (default to secure in prod)
+AUTH_COOKIE_SECURE = os.environ.get('AUTH_COOKIE_SECURE', str(not DEBUG)) == 'True'
 AUTH_COOKIE_HTTP_ONLY = True    # Prevents JavaScript access (XSS protection)
 AUTH_COOKIE_PATH = '/'
 AUTH_COOKIE_SAMESITE = 'Lax'    # CSRF protection while allowing top-level navigation
@@ -193,6 +194,7 @@ if not DEBUG:
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'DENY'
-    SECURE_SSL_REDIRECT = True
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
+    # Allow disabling SSL requirements via env vars (useful for non-SSL production testing)
+    SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'True') == 'True'
+    SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'True') == 'True'
+    CSRF_COOKIE_SECURE = os.environ.get('CSRF_COOKIE_SECURE', 'True') == 'True'
