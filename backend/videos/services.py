@@ -2,6 +2,7 @@ import os
 import json
 import subprocess
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import tempfile
 import time
 import io
@@ -20,6 +21,46 @@ from .models import Video
 # Path to token.json
 TOKEN_PATH = os.path.join(settings.BASE_DIR, 'token.json')
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# Video Processing Worker Pool
+# =============================================================================
+DEFAULT_MAX_WORKERS = max(1, min(4, (os.cpu_count() or 2) // 2))
+MAX_WORKERS = int(os.environ.get('VIDEO_PROCESSING_WORKERS', DEFAULT_MAX_WORKERS))
+PROCESSING_EXECUTOR = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+PROCESS_REGISTRY = {}
+PROCESS_REGISTRY_LOCK = threading.Lock()
+
+
+def register_processing(video_id, process, temp_file_path, output_path, cancel_event):
+    with PROCESS_REGISTRY_LOCK:
+        PROCESS_REGISTRY[video_id] = {
+            'process': process,
+            'temp_file_path': temp_file_path,
+            'output_path': output_path,
+            'cancel_event': cancel_event,
+        }
+
+
+def unregister_processing(video_id):
+    with PROCESS_REGISTRY_LOCK:
+        return PROCESS_REGISTRY.pop(video_id, None)
+
+
+def cancel_processing(video_id):
+    with PROCESS_REGISTRY_LOCK:
+        info = PROCESS_REGISTRY.get(video_id)
+
+    if not info:
+        return False
+
+    info['cancel_event'].set()
+    process = info.get('process')
+
+    if process and process.poll() is None:
+        process.terminate()
+
+    return True
 
 class DriveService:
     def __init__(self):
@@ -132,30 +173,25 @@ class VideoProcessor:
             return False
 
     def process_video(self):
-        """Speed up video 2x with optimized encoding settings.
+        """Speed up video 2x with quality-preserving encoding settings.
         
-        Performance Optimizations:
-        - superfast preset: Balanced speed vs compression (faster than slow/medium)
-        - CRF 28: Aggressive compression = smaller file = faster upload
+        Performance Optimizations (no quality compromise):
+        - veryfast preset: Faster encode without reducing visual quality
+        - CRF 23: High quality (lower = better). 23 is visually near‑transparent
         - threads 0: Uses all available CPU cores
         - faststart: Moves moov atom to beginning for instant web playback
         - AAC audio: Efficient codec for web compatibility
-        
-        Expected Results:
-        - 500MB input → ~250-300MB output (50% smaller)
-        - Processing time: ~2-3 mins (vs 1 min ultrafast but larger file)
-        - Total pipeline: 3-4 mins (vs 10 mins with default settings)
         """
         has_audio = self.has_audio()
         
-        # Base command with performance optimizations
+        # Base command with performance optimizations (quality-preserving)
         cmd = [
             'ffmpeg',
             '-y',  # Overwrite output
             '-i', self.input_path,
             '-threads', '0',  # Use all CPU cores
-            '-preset', 'superfast',  # Fast encoding with good compression
-            '-crf', '28',  # Aggressive compression (18=high quality, 28=smaller file)
+            '-preset', 'veryfast',  # Faster encode, quality preserved by CRF
+            '-crf', '23',  # High quality (18=visually lossless, 23=high)
         ]
 
         if has_audio:
@@ -178,13 +214,8 @@ class VideoProcessor:
         cmd.append(self.output_path)
         
         logger.info(f"FFmpeg command: {' '.join(cmd)}")
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        
-        if result.returncode != 0:
-            error_log = result.stderr.decode('utf-8')
-            raise Exception(f"FFmpeg failed: {error_log}")
-        
-        return True
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return process
 
 def process_video_background(video_id, temp_file_path, original_filename):
     close_old_connections()
@@ -198,7 +229,23 @@ def process_video_background(video_id, temp_file_path, original_filename):
             output_path = output_temp.name
 
         processor = VideoProcessor(temp_file_path, output_path)
-        processor.process_video()
+        cancel_event = threading.Event()
+        process = processor.process_video()
+
+        register_processing(video_id, process, temp_file_path, output_path, cancel_event)
+
+        stdout, stderr = process.communicate()
+
+        if cancel_event.is_set():
+            Video.objects.filter(id=video_id).update(
+                status='CANCELED',
+                error_message='Processing canceled by user.'
+            )
+            return
+
+        if process.returncode != 0:
+            error_log = stderr.decode('utf-8')
+            raise Exception(f"FFmpeg failed: {error_log}")
 
         drive_service = DriveService()
         file_id = drive_service.upload_file(output_path, f"Processed_{original_filename}")
@@ -226,12 +273,18 @@ def process_video_background(video_id, temp_file_path, original_filename):
         if 'output_path' in locals() and os.path.exists(output_path):
             os.unlink(output_path)
     finally:
+        if os.path.exists(temp_file_path):
+            os.unlink(temp_file_path)
+        if 'output_path' in locals() and os.path.exists(output_path):
+            os.unlink(output_path)
+        unregister_processing(video_id)
         close_old_connections()
 
 def start_background_processing(video_id, temp_file_path, original_filename):
-    thread = threading.Thread(
-        target=process_video_background, 
-        args=(video_id, temp_file_path, original_filename)
+    """Submit processing to the shared worker pool for parallel execution."""
+    PROCESSING_EXECUTOR.submit(
+        process_video_background,
+        video_id,
+        temp_file_path,
+        original_filename
     )
-    thread.daemon = True
-    thread.start()

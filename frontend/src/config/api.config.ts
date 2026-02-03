@@ -15,6 +15,7 @@ export const API_ENDPOINTS = {
     UPLOAD: '/api/videos/upload/',
     LIST: '/api/videos/list/',
     STREAM: (id: string) => `/api/videos/stream/${id}/`,
+    ABORT: (id: number) => `/api/videos/${id}/abort/`,
     DELETE: (id: number) => `/api/videos/${id}/`,
   }
 } as const;

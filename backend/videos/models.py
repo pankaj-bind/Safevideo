@@ -9,6 +9,7 @@ class Video(models.Model):
         ('PROCESSING', 'Processing'),
         ('COMPLETED', 'Completed'),
         ('FAILED', 'Failed'),
+        ('CANCELED', 'Canceled'),
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='videos')

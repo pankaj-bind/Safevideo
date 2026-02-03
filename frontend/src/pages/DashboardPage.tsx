@@ -50,30 +50,30 @@ const VIDEOS_PER_PAGE = 9;
 // =============================================================================
 const StatsOverview: React.FC<{ stats: StatsData; isLoading: boolean }> = ({ stats, isLoading }) => {
   const statItems = [
-    { label: 'Total Videos', value: stats.total, icon: Film, tone: 'info' },
-    { label: 'Processing', value: stats.processing, icon: Loader2, tone: 'warning' },
-    { label: 'Completed', value: stats.completed, icon: CheckCircle, tone: 'success' },
-    { label: 'Failed', value: stats.failed, icon: AlertCircle, tone: 'danger' },
-  ] as const;
+    { label: 'Total Videos', value: stats.total, icon: Film, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'Processing', value: stats.processing, icon: Loader2, color: 'text-yellow-600', bg: 'bg-yellow-50' },
+    { label: 'Completed', value: stats.completed, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50' },
+    { label: 'Failed', value: stats.failed, icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
+  ];
 
   return (
     <div className="sv-stats">
       {statItems.map((item) => (
         <div
           key={item.label}
-          className="sv-card sv-stat-card"
+          className="sv-card sv-card--stat"
         >
-          <div className="sv-stat">
+          <div className="flex items-center justify-between">
             <div>
-              <p className="sv-stat-label">{item.label}</p>
+              <p className="sv-muted">{item.label}</p>
               {isLoading ? (
-                <div className="sv-skeleton sv-skeleton--value" />
+                <div className="sv-skeleton" />
               ) : (
-                <p className={`sv-stat-value sv-tone-${item.tone}`}>{item.value}</p>
+                <p className="sv-stat-value">{item.value}</p>
               )}
             </div>
-            <div className={`sv-stat-icon sv-tone-${item.tone}`}>
-              <item.icon className={`${item.label === 'Processing' && stats.processing > 0 ? 'is-spinning' : ''}`} />
+            <div className="sv-stat-icon">
+              <item.icon className={item.label === 'Processing' && stats.processing > 0 ? 'sv-spin' : ''} />
             </div>
           </div>
         </div>
@@ -130,46 +130,46 @@ const UploadZone: React.FC<{
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onClick={() => !isUploading && fileInputRef.current?.click()}
-        className={`sv-upload ${isDragOver ? 'is-dragover' : ''} ${isUploading ? 'is-uploading' : ''}`}
+        className={`sv-upload ${isDragOver ? 'sv-upload--active' : ''} ${isUploading ? 'sv-disabled' : ''}`}
       >
         <input
           ref={fileInputRef}
           type="file"
           accept="video/*"
           onChange={handleFileChange}
-          className="sv-hidden"
+          className="hidden"
           disabled={isUploading}
         />
 
-        <div className="sv-upload-inner">
+        <div className="sv-upload-content">
           {isUploading ? (
             <>
               <div className="sv-upload-spinner">
                 <div className="sv-spinner" />
                 <CloudUpload className="sv-spinner-icon" />
               </div>
-              <p className="sv-upload-title">Uploading your video...</p>
-              <p className="sv-upload-subtitle">Please wait while we process your file</p>
+              <p className="sv-title">Uploading your video...</p>
+              <p className="sv-muted">Please wait while we process your file</p>
             </>
           ) : (
             <>
-              <div className={`sv-upload-icon ${isDragOver ? 'is-dragover' : ''}`}>
+              <div className="sv-upload-icon">
                 <Upload />
               </div>
-              <p className="sv-upload-title">
+              <p className="sv-title">
                 {isDragOver ? 'Drop your video here!' : 'Drag & drop your video'}
               </p>
-              <p className="sv-upload-subtitle">
+              <p className="sv-muted">
                 or <span className="sv-link">browse files</span>
               </p>
-              <p className="sv-upload-meta">Supports MP4, MOV, AVI, and more</p>
+              <p className="sv-caption">Supports MP4, MOV, AVI, and more</p>
             </>
           )}
         </div>
       </div>
 
       {uploadError && (
-        <div className="sv-alert">
+        <div className="sv-alert sv-alert--error">
           <AlertCircle className="sv-alert-icon" />
           <div>
             <p className="sv-alert-title">Upload Failed</p>
@@ -227,28 +227,28 @@ const VideoCard: React.FC<{ video: Video; onDelete: (id: number) => void }> = ({
   const StatusIcon = statusConfig.icon;
 
   return (
-    <div className={`sv-video-card ${isDeleting ? 'is-deleting' : ''}`}>
+    <div className={`sv-card sv-card--video ${isDeleting ? 'sv-disabled' : ''}`}>
       {/* Delete Button */}
       <button
         onClick={handleDelete}
         disabled={isDeleting}
-        className="sv-video-delete"
+        className="sv-delete"
         title="Delete video"
       >
         {isDeleting ? (
-          <Loader2 className="is-spinning" />
+          <Loader2 className="sv-spin" />
         ) : (
           <Trash2 />
         )}
       </button>
 
       {/* Video Player / Preview Area */}
-      <div className="sv-video-media">
+      <div className="sv-video-shell">
         {video.status === 'COMPLETED' && video.file_id ? (
           <video
             controls
             preload="metadata"
-            className="sv-video-player"
+            className="sv-video"
             poster={`data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 225'><rect fill='%231f2937' width='400' height='225'/><text x='200' y='112' text-anchor='middle' fill='%236b7280' font-size='14'>Loading...</text></svg>`}
           >
             <source
@@ -258,27 +258,27 @@ const VideoCard: React.FC<{ video: Video; onDelete: (id: number) => void }> = ({
             Your browser does not support the video tag.
           </video>
         ) : (
-          <div className="sv-video-placeholder">
+          <div className="sv-video-status">
             {video.status === 'PROCESSING' && (
               <>
-                <div className="sv-video-spinner">
-                  <div className="sv-spinner" />
-                  <Play className="sv-spinner-icon" />
+                <div className="sv-processing">
+                  <div className="sv-processing-ring" />
+                  <Play className="sv-processing-icon" />
                 </div>
-                <p className="sv-video-status">Processing your video...</p>
-                <p className="sv-video-status-sub">This may take a few minutes</p>
+                <p className="sv-video-title">Processing your video...</p>
+                <p className="sv-video-caption">This may take a few minutes</p>
               </>
             )}
             {video.status === 'PENDING' && (
               <>
-                <Clock />
-                <p className="sv-video-status">Waiting in queue...</p>
+                <Clock className="sv-muted" />
+                <p className="sv-video-caption">Waiting in queue...</p>
               </>
             )}
             {video.status === 'FAILED' && (
               <>
-                <AlertCircle />
-                <p className="sv-video-status is-failed">Processing Failed</p>
+                <AlertCircle className="sv-error" />
+                <p className="sv-video-error">Processing Failed</p>
               </>
             )}
           </div>
@@ -286,25 +286,23 @@ const VideoCard: React.FC<{ video: Video; onDelete: (id: number) => void }> = ({
       </div>
 
       {/* Card Content */}
-      <div className="sv-video-body">
-        <div className="sv-video-head">
-          <h3 className="sv-video-title" title={video.title}>
+      <div className="sv-card-body">
+        <div className="sv-card-header">
+          <h3 className="sv-card-title" title={video.title}>
             {video.title}
           </h3>
-          <span
-            className={`sv-badge sv-badge--${video.status.toLowerCase()}`}
-          >
-            <StatusIcon className={`${video.status === 'PROCESSING' ? 'is-spinning' : ''}`} />
+          <span className={`sv-badge sv-badge--${video.status.toLowerCase()}`}>
+            <StatusIcon className={video.status === 'PROCESSING' ? 'sv-spin' : ''} />
             {statusConfig.label}
           </span>
         </div>
 
-        <p className="sv-video-time">
+        <p className="sv-muted">
           {formatDistanceToNow(new Date(video.created_at), { addSuffix: true })}
         </p>
 
         {video.status === 'FAILED' && video.error_message && (
-          <div className="sv-video-error">
+          <div className="sv-error-card">
             <p>{video.error_message}</p>
           </div>
         )}
@@ -330,27 +328,27 @@ const Pagination: React.FC<{
 
   return (
     <div className="sv-pagination">
-      <p className="sv-pagination-text">
-        Showing <span className="font-semibold">{startItem}-{endItem}</span> of{' '}
-        <span className="font-semibold">{totalItems}</span> videos
+      <p className="sv-muted">
+        Showing <span className="sv-strong">{startItem}-{endItem}</span> of{' '}
+        <span className="sv-strong">{totalItems}</span> videos
       </p>
       
       <div className="sv-pagination-controls">
         <button
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1}
-          className="sv-page-btn"
+          className="sv-button sv-button--ghost"
         >
           <ChevronLeft />
           Previous
         </button>
         
-        <div className="sv-page-list">
+        <div className="sv-pagination-pages">
           {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
             <button
               key={page}
               onClick={() => onPageChange(page)}
-              className={`sv-page-number ${page === currentPage ? 'is-active' : ''}`}
+              className={`sv-page ${page === currentPage ? 'sv-page--active' : ''}`}
             >
               {page}
             </button>
@@ -360,7 +358,7 @@ const Pagination: React.FC<{
         <button
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage === totalPages}
-          className="sv-page-btn"
+          className="sv-button sv-button--ghost"
         >
           Next
           <ChevronRight />
@@ -383,13 +381,13 @@ const VideoGrid: React.FC<{
 }> = ({ videos, isLoading, onDelete, currentPage, totalPages, onPageChange }) => {
   if (isLoading && videos.length === 0) {
     return (
-      <div className="sv-video-grid">
+      <div className="sv-grid">
         {[...Array(6)].map((_, i) => (
-          <div key={i} className="sv-card sv-video-skeleton">
-            <div className="sv-skeleton sv-skeleton--media" />
-            <div className="sv-video-body">
-              <div className="sv-skeleton sv-skeleton--title" />
-              <div className="sv-skeleton sv-skeleton--text" />
+          <div key={i} className="sv-card sv-card--video">
+            <div className="sv-skeleton-video" />
+            <div className="sv-card-body">
+              <div className="sv-skeleton-line" />
+              <div className="sv-skeleton-line sv-skeleton-line--short" />
             </div>
           </div>
         ))}
@@ -409,7 +407,7 @@ const VideoGrid: React.FC<{
 
   return (
     <>
-      <div className="sv-video-grid">
+      <div className="sv-grid">
         {videos.map((video) => (
           <VideoCard key={video.id} video={video} onDelete={onDelete} />
         ))}
@@ -432,16 +430,22 @@ const VideoGrid: React.FC<{
 // MAIN DASHBOARD PAGE
 // =============================================================================
 const DashboardPage: React.FC = () => {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const stored = localStorage.getItem('sv-theme');
+    return stored === 'dark' ? 'dark' : 'light';
+  });
   const [allVideos, setAllVideos] = useState<Video[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [isTabVisible, setIsTabVisible] = useState(true);
-  const [theme, setTheme] = useState<'light' | 'dark'>(
-    () => (localStorage.getItem('theme') as 'light' | 'dark') || 'light'
-  );
   const { logout } = useAuth();
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('sv-theme', theme);
+  }, [theme]);
 
   // Pagination calculations
   const totalPages = Math.ceil(allVideos.length / VIDEOS_PER_PAGE);
@@ -492,11 +496,6 @@ const DashboardPage: React.FC = () => {
     return () => clearInterval(intervalId);
   }, [fetchVideos, isTabVisible]);
 
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
-  }, [theme]);
-
   // Reset to page 1 if current page becomes invalid
   useEffect(() => {
     if (currentPage > totalPages && totalPages > 0) {
@@ -545,38 +544,33 @@ const DashboardPage: React.FC = () => {
   };
 
   return (
-    <div className="sv-app">
-      {/* Header */}
+    <div className="sv-dashboard">
       <header className="sv-header">
-        <div className="sv-header-inner">
+        <div className="sv-shell">
           <div className="sv-brand">
             <div className="sv-logo">
               <Film />
             </div>
-            <h1>SafeVideo</h1>
+            <div>
+              <p className="sv-brand-title">SafeVideo</p>
+              <p className="sv-brand-subtitle">Secure uploads, cinematic clarity</p>
+            </div>
           </div>
 
           <div className="sv-actions">
             <button
-              onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+              onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
               className="sv-button sv-button--ghost"
               title="Toggle theme"
             >
-              {theme === 'light' ? <Moon /> : <Sun />}
-              {theme === 'light' ? 'Dark' : 'Light'}
+              {theme === 'dark' ? <Sun /> : <Moon />}
+              {theme === 'dark' ? 'Light' : 'Dark'}
             </button>
-            <button
-              onClick={fetchVideos}
-              className="sv-button sv-button--ghost"
-              title="Refresh"
-            >
+            <button onClick={fetchVideos} className="sv-button sv-button--ghost" title="Refresh">
               <RefreshCw />
               Refresh
             </button>
-            <button
-              onClick={logout}
-              className="sv-button sv-button--danger"
-            >
+            <button onClick={logout} className="sv-button sv-button--danger">
               <LogOut />
               Logout
             </button>
@@ -584,30 +578,30 @@ const DashboardPage: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="sv-main">
-        <section className="sv-hero">
+      <main className="sv-shell sv-main">
+        <div className="sv-hero">
           <div>
-            <p className="sv-hero-kicker">Secure video processing</p>
-            <h2>Upload once, access anywhere.</h2>
-            <p className="sv-hero-sub">Fast uploads, clean previews, and real‑time processing status.</p>
+            <h1>Upload once. Stream everywhere.</h1>
+            <p>Lightning-fast processing, instant previews, and polished status cards.</p>
           </div>
           <div className="sv-hero-card">
-            <p>Privacy-first processing with cloud streaming.</p>
-            <span>Designed like a premium workspace.</span>
+            <p className="sv-muted">Storage</p>
+            <p className="sv-hero-value">Google Drive</p>
+            <p className="sv-hero-caption">Optimized resumable uploads</p>
           </div>
-        </section>
-        {/* Stats - Wrapped in Error Boundary */}
+        </div>
+
         <ErrorBoundary>
           <StatsOverview stats={stats} isLoading={isLoading} />
         </ErrorBoundary>
 
-        {/* Upload Zone */}
         <UploadZone onUpload={handleUpload} isUploading={isUploading} uploadError={uploadError} />
 
-        {/* Video Gallery Header */}
-        <div className="sv-section sv-section--head">
-          <h2>Your Videos</h2>
+        <div className="sv-section-header">
+          <div>
+            <h2>Your Videos</h2>
+            <p className="sv-muted">Manage uploads and review processing status.</p>
+          </div>
           {allVideos.length > 0 && (
             <p className="sv-muted">
               {allVideos.length} video{allVideos.length !== 1 ? 's' : ''} • Page {currentPage} of {totalPages || 1}
@@ -615,7 +609,6 @@ const DashboardPage: React.FC = () => {
           )}
         </div>
 
-        {/* Video Grid - Wrapped in Error Boundary */}
         <ErrorBoundary>
           <VideoGrid 
             videos={paginatedVideos} 

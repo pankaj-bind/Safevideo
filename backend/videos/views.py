@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.http import StreamingHttpResponse, HttpResponse
 from .models import Video
-from .services import start_background_processing, DriveService
+from .services import start_background_processing, DriveService, cancel_processing
 import tempfile
 import os
 import io
@@ -86,6 +86,10 @@ class VideoDeleteView(APIView):
     def delete(self, request, pk):
         try:
             video = Video.objects.get(id=pk, user=request.user)
+
+            # Cancel processing if still running
+            if video.status in ('PENDING', 'PROCESSING'):
+                cancel_processing(video.id)
             
             # Delete from Google Drive if file_id exists
             if video.file_id:
@@ -98,5 +102,37 @@ class VideoDeleteView(APIView):
             video.delete()
             return Response({'message': 'Video deleted successfully'}, status=status.HTTP_204_NO_CONTENT)
         
+        except Video.DoesNotExist:
+            return Response({'error': 'Video not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class VideoAbortView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            video = Video.objects.get(id=pk, user=request.user)
+
+            if video.status not in ('PENDING', 'PROCESSING'):
+                return Response({'error': 'Video is not processing'}, status=status.HTTP_400_BAD_REQUEST)
+
+            canceled = cancel_processing(video.id)
+            video.status = 'CANCELED'
+            video.error_message = 'Processing canceled by user.'
+            video.save()
+
+            # If canceled, allow user to delete right away
+            if canceled:
+                if video.file_id:
+                    try:
+                        drive_service = DriveService()
+                        drive_service.delete_file(video.file_id)
+                    except Exception as e:
+                        print(f"Warning: Could not delete from Drive: {e}")
+                video.delete()
+                return Response({'message': 'Processing aborted and video deleted.'}, status=status.HTTP_200_OK)
+
+            return Response({'message': 'Abort requested.'}, status=status.HTTP_200_OK)
+
         except Video.DoesNotExist:
             return Response({'error': 'Video not found'}, status=status.HTTP_404_NOT_FOUND)
