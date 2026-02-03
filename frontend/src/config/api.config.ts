@@ -1,8 +1,3 @@
-/**
- * API Configuration
- * Centralized API settings and endpoint definitions
- */
-
 export const API_CONFIG = {
   BASE_URL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
   TIMEOUT: 10000,
@@ -16,5 +11,9 @@ export const API_ENDPOINTS = {
     REFRESH: '/api/auth/refresh/',
     ME: '/api/auth/me/',
   },
-  DASHBOARD: '/api/dashboard/',
+  VIDEOS: {
+    UPLOAD: '/api/videos/upload/',
+    LIST: '/api/videos/list/',
+    STREAM: (id: string) => `/api/videos/stream/${id}/`,
+  }
 } as const;

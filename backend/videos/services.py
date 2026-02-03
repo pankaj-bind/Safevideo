@@ -4,16 +4,21 @@ import subprocess
 import threading
 import tempfile
 import time
+import io
+import logging
+
 from django.conf import settings
+from django.db import connection, close_old_connections
+
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
-from django.db import connection, close_old_connections
-from .models import Video
-import io
 
-# Path to token.json - assuming it's in the backend directory
+from .models import Video
+
+# Path to token.json
 TOKEN_PATH = os.path.join(settings.BASE_DIR, 'token.json')
+logger = logging.getLogger(__name__)
 
 class DriveService:
     def __init__(self):
@@ -27,12 +32,12 @@ class DriveService:
         self.service = build('drive', 'v3', credentials=self.creds)
 
     def upload_file(self, file_path, title):
-        # Read Folder ID from environment
+        # 1. Check for Folder ID in Environment
         folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
         
         file_metadata = {
             'name': title,
-            # This line forces the upload into your specific folder
+            # 2. Upload to specific folder if ID exists
             'parents': [folder_id] if folder_id else []
         }
         
@@ -83,29 +88,35 @@ class VideoProcessor:
         """Speed up video 2x. Handle audio if present."""
         has_audio = self.has_audio()
         
-        cmd = ['ffmpeg', '-i', self.input_path, '-y'] # -y to overwrite output
+        # -y to overwrite output
+        cmd = ['ffmpeg', '-i', self.input_path, '-y'] 
 
         if has_audio:
-            # [0:v]setpts=0.5*PTS[v];[0:a]atempo=2.0[a]
+            # Filter: Speed up Video (setpts) AND Audio (atempo)
             filter_complex = "[0:v]setpts=0.5*PTS[v];[0:a]atempo=2.0[a]"
             cmd.extend(['-filter_complex', filter_complex])
+            # CRITICAL FIX: Explicitly map the filter outputs to the final file
+            cmd.extend(['-map', '[v]', '-map', '[a]'])
         else:
-            # [0:v]setpts=0.5*PTS[v] (Do not map audio)
+            # Filter: Speed up Video only
             filter_complex = "[0:v]setpts=0.5*PTS[v]"
             cmd.extend(['-filter_complex', filter_complex])
+            # CRITICAL FIX: Explicitly map the filter output
+            cmd.extend(['-map', '[v]'])
         
+        # Add output path
         cmd.append(self.output_path)
         
         print(f"Running FFmpeg command: {' '.join(cmd)}")
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
         if result.returncode != 0:
-            raise Exception(f"FFmpeg failed: {result.stderr.decode('utf-8')}")
+            error_log = result.stderr.decode('utf-8')
+            raise Exception(f"FFmpeg failed: {error_log}")
         
         return True
 
 def process_video_background(video_id, temp_file_path, original_filename):
-    # Close old connections at start of thread
     close_old_connections()
     
     try:
@@ -113,32 +124,26 @@ def process_video_background(video_id, temp_file_path, original_filename):
         video.status = 'PROCESSING'
         video.save()
 
-        # Create a temp output file
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as output_temp:
             output_path = output_temp.name
 
-        # Process Video
         processor = VideoProcessor(temp_file_path, output_path)
         processor.process_video()
 
-        # Upload to Drive
         drive_service = DriveService()
         file_id = drive_service.upload_file(output_path, f"Processed_{original_filename}")
 
-        # Update Video record
         video.file_id = file_id
         video.status = 'COMPLETED'
         video.save()
 
         # Cleanup
-        os.unlink(temp_file_path)
-        os.unlink(output_path)
+        if os.path.exists(temp_file_path): os.unlink(temp_file_path)
+        if os.path.exists(output_path): os.unlink(output_path)
 
     except Exception as e:
-        print(f"Background Processing Error: {e}")
-        # Need to re-fetch to avoid stale data issues if possible, or just update
+        logger.error(f"Background Processing Error: {e}")
         try:
-            # Re-ensure connection is valid before writing failure
             close_old_connections()
             video = Video.objects.get(id=video_id)
             video.status = 'FAILED'
@@ -147,13 +152,10 @@ def process_video_background(video_id, temp_file_path, original_filename):
         except Exception as db_e:
              print(f"Failed to save error state: {db_e}")
         
-        # Cleanup if files exist
-        if os.path.exists(temp_file_path):
-            os.unlink(temp_file_path)
+        if os.path.exists(temp_file_path): os.unlink(temp_file_path)
         if 'output_path' in locals() and os.path.exists(output_path):
             os.unlink(output_path)
     finally:
-        # Close connections at end of thread
         close_old_connections()
 
 def start_background_processing(video_id, temp_file_path, original_filename):
