@@ -1,0 +1,16 @@
+# Backend-specific Docker Ignore
+__pycache__
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+*.egg-info/
+.git
+.gitignore
+*.md
+.coverage
+htmlcov/
+.pytest_cache/
+.idea/
+.vscode/
