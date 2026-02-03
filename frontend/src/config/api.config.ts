@@ -12,7 +12,8 @@ export const API_ENDPOINTS = {
     ME: '/api/auth/me/',
   },
   VIDEOS: {
-    UPLOAD: '/api/videos/upload/',
+    UPLOAD: '/api/videos/upload/chunk/',
+    COMPLETE: '/api/videos/upload/complete/',
     LIST: '/api/videos/list/',
     STREAM: (id: string) => `/api/videos/stream/${id}/`,
     ABORT: (id: number) => `/api/videos/${id}/abort/`,

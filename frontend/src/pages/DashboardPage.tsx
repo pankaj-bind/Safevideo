@@ -504,16 +504,38 @@ const DashboardPage: React.FC = () => {
   }, [currentPage, totalPages]);
 
   const handleUpload = async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-
     setIsUploading(true);
     setUploadError(null);
 
+    const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    const uploadId = Date.now().toString() + '_' + file.name;
+
     try {
-      await axiosInstance.post(API_ENDPOINTS.VIDEOS.UPLOAD, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const start = chunkIndex * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+
+        const formData = new FormData();
+        formData.append('chunk', chunk);
+        formData.append('upload_id', uploadId);
+        formData.append('chunk_index', chunkIndex.toString());
+        formData.append('total_chunks', totalChunks.toString());
+        formData.append('filename', file.name);
+
+        await axiosInstance.post(API_ENDPOINTS.VIDEOS.UPLOAD, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+      }
+
+      // Finalize
+      await axiosInstance.post(API_ENDPOINTS.VIDEOS.COMPLETE, {
+        upload_id: uploadId,
+        filename: file.name,
+        total_chunks: totalChunks
       });
+
       await fetchVideos();
       setCurrentPage(1); // Go to first page to see new upload
     } catch (error: any) {

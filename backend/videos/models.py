@@ -15,6 +15,8 @@ class Video(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='videos')
     title = models.CharField(max_length=255)
     file_id = models.CharField(max_length=255, blank=True, null=True, help_text="Google Drive File ID")
+    file_size = models.BigIntegerField(null=True, blank=True)
+    mime_type = models.CharField(max_length=100, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     error_message = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
