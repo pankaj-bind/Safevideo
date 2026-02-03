@@ -11,5 +11,6 @@ urlpatterns = [
     
     # API v1 endpoints
     path('api/auth/', include('authentication.urls', namespace='auth')),
+    path('api/videos/', include('videos.urls')),
     path('api/dashboard/', include(dashboard_urlpatterns)),
 ]
