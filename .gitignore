@@ -24,7 +24,12 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-.client_secret.json
+
+# Google OAuth credentials
+client_secret.json
+**/client_secret.json
+credentials.json
+token.json
 
 # Django
 *.log
