@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axiosInstance from '../api/axiosInstance';
 import { useAuth } from '../context/AuthContext';
 import { API_ENDPOINTS, API_CONFIG } from '../config/api.config';
+import ErrorBoundary from '../components/ErrorBoundary';
 import { 
   Upload, 
   Play, 
@@ -12,7 +13,10 @@ import {
   Loader2, 
   CloudUpload,
   LogOut,
-  RefreshCw
+  RefreshCw,
+  Trash2,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -36,6 +40,8 @@ interface StatsData {
   completed: number;
   failed: number;
 }
+
+const VIDEOS_PER_PAGE = 9;
 
 // =============================================================================
 // STATS OVERVIEW COMPONENT
@@ -184,7 +190,9 @@ const UploadZone: React.FC<{
 // =============================================================================
 // VIDEO CARD COMPONENT
 // =============================================================================
-const VideoCard: React.FC<{ video: Video }> = ({ video }) => {
+const VideoCard: React.FC<{ video: Video; onDelete: (id: number) => void }> = ({ video, onDelete }) => {
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const getStatusConfig = (status: VideoStatus) => {
     switch (status) {
       case 'COMPLETED':
@@ -214,11 +222,32 @@ const VideoCard: React.FC<{ video: Video }> = ({ video }) => {
     }
   };
 
+  const handleDelete = async () => {
+    if (window.confirm(`Are you sure you want to delete "${video.title}"? This action cannot be undone.`)) {
+      setIsDeleting(true);
+      onDelete(video.id);
+    }
+  };
+
   const statusConfig = getStatusConfig(video.status);
   const StatusIcon = statusConfig.icon;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-lg transition-all duration-300 group">
+    <div className={`bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-lg transition-all duration-300 group relative ${isDeleting ? 'opacity-50 pointer-events-none' : ''}`}>
+      {/* Delete Button */}
+      <button
+        onClick={handleDelete}
+        disabled={isDeleting}
+        className="absolute top-3 right-3 z-10 p-2 bg-red-500/90 hover:bg-red-600 text-white rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-lg"
+        title="Delete video"
+      >
+        {isDeleting ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <Trash2 className="w-4 h-4" />
+        )}
+      </button>
+
       {/* Video Player / Preview Area */}
       <div className="aspect-video bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 relative">
         {video.status === 'COMPLETED' && video.file_id ? (
@@ -291,9 +320,77 @@ const VideoCard: React.FC<{ video: Video }> = ({ video }) => {
 };
 
 // =============================================================================
+// PAGINATION COMPONENT
+// =============================================================================
+const Pagination: React.FC<{
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  itemsPerPage: number;
+  onPageChange: (page: number) => void;
+}> = ({ currentPage, totalPages, totalItems, itemsPerPage, onPageChange }) => {
+  const startItem = (currentPage - 1) * itemsPerPage + 1;
+  const endItem = Math.min(currentPage * itemsPerPage, totalItems);
+
+  if (totalItems === 0) return null;
+
+  return (
+    <div className="flex items-center justify-between mt-8 px-2">
+      <p className="text-sm text-gray-600">
+        Showing <span className="font-semibold">{startItem}-{endItem}</span> of{' '}
+        <span className="font-semibold">{totalItems}</span> videos
+      </p>
+      
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          className="inline-flex items-center gap-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          Previous
+        </button>
+        
+        <div className="flex items-center gap-1">
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+            <button
+              key={page}
+              onClick={() => onPageChange(page)}
+              className={`w-10 h-10 text-sm font-medium rounded-xl transition-colors ${
+                page === currentPage
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              {page}
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          className="inline-flex items-center gap-1 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          Next
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// =============================================================================
 // VIDEO GRID COMPONENT
 // =============================================================================
-const VideoGrid: React.FC<{ videos: Video[]; isLoading: boolean }> = ({ videos, isLoading }) => {
+const VideoGrid: React.FC<{ 
+  videos: Video[]; 
+  isLoading: boolean; 
+  onDelete: (id: number) => void;
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}> = ({ videos, isLoading, onDelete, currentPage, totalPages, onPageChange }) => {
   if (isLoading && videos.length === 0) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -321,11 +418,23 @@ const VideoGrid: React.FC<{ videos: Video[]; isLoading: boolean }> = ({ videos, 
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {videos.map((video) => (
-        <VideoCard key={video.id} video={video} />
-      ))}
-    </div>
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {videos.map((video) => (
+          <VideoCard key={video.id} video={video} onDelete={onDelete} />
+        ))}
+      </div>
+      
+      {totalPages > 1 && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={videos.length * totalPages} // Approximate, will be corrected by parent
+          itemsPerPage={VIDEOS_PER_PAGE}
+          onPageChange={onPageChange}
+        />
+      )}
+    </>
   );
 };
 
@@ -333,23 +442,33 @@ const VideoGrid: React.FC<{ videos: Video[]; isLoading: boolean }> = ({ videos, 
 // MAIN DASHBOARD PAGE
 // =============================================================================
 const DashboardPage: React.FC = () => {
-  const [videos, setVideos] = useState<Video[]>([]);
+  const [allVideos, setAllVideos] = useState<Video[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isTabVisible, setIsTabVisible] = useState(true);
   const { logout } = useAuth();
 
+  // Pagination calculations
+  const totalPages = Math.ceil(allVideos.length / VIDEOS_PER_PAGE);
+  const paginatedVideos = allVideos.slice(
+    (currentPage - 1) * VIDEOS_PER_PAGE,
+    currentPage * VIDEOS_PER_PAGE
+  );
+
+  // Stats from all videos (not paginated)
   const stats: StatsData = {
-    total: videos.length,
-    processing: videos.filter((v) => v.status === 'PROCESSING').length,
-    completed: videos.filter((v) => v.status === 'COMPLETED').length,
-    failed: videos.filter((v) => v.status === 'FAILED').length,
+    total: allVideos.length,
+    processing: allVideos.filter((v) => v.status === 'PROCESSING').length,
+    completed: allVideos.filter((v) => v.status === 'COMPLETED').length,
+    failed: allVideos.filter((v) => v.status === 'FAILED').length,
   };
 
   const fetchVideos = useCallback(async () => {
     try {
       const response = await axiosInstance.get<Video[]>(API_ENDPOINTS.VIDEOS.LIST);
-      setVideos(response.data);
+      setAllVideos(response.data);
     } catch (error) {
       console.error('Failed to fetch videos:', error);
     } finally {
@@ -357,11 +476,35 @@ const DashboardPage: React.FC = () => {
     }
   }, []);
 
+  // Handle tab visibility for pausing polling
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsTabVisible(!document.hidden);
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  // Polling with visibility check
   useEffect(() => {
     fetchVideos();
-    const intervalId = setInterval(fetchVideos, 5000);
+    
+    const intervalId = setInterval(() => {
+      if (isTabVisible) {
+        fetchVideos();
+      }
+    }, 5000);
+    
     return () => clearInterval(intervalId);
-  }, [fetchVideos]);
+  }, [fetchVideos, isTabVisible]);
+
+  // Reset to page 1 if current page becomes invalid
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const handleUpload = async (file: File) => {
     const formData = new FormData();
@@ -375,12 +518,32 @@ const DashboardPage: React.FC = () => {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       await fetchVideos();
+      setCurrentPage(1); // Go to first page to see new upload
     } catch (error: any) {
       console.error('Upload failed:', error);
       setUploadError(error.response?.data?.error || 'Upload failed. Please try again.');
     } finally {
       setIsUploading(false);
     }
+  };
+
+  const handleDelete = async (videoId: number) => {
+    // Optimistic update - remove immediately from UI
+    setAllVideos((prev) => prev.filter((v) => v.id !== videoId));
+
+    try {
+      await axiosInstance.delete(API_ENDPOINTS.VIDEOS.DELETE(videoId));
+    } catch (error: any) {
+      console.error('Delete failed:', error);
+      // Rollback on error - refetch to restore state
+      await fetchVideos();
+      alert('Failed to delete video. Please try again.');
+    }
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
@@ -418,23 +581,45 @@ const DashboardPage: React.FC = () => {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats */}
-        <StatsOverview stats={stats} isLoading={isLoading} />
+        {/* Stats - Wrapped in Error Boundary */}
+        <ErrorBoundary>
+          <StatsOverview stats={stats} isLoading={isLoading} />
+        </ErrorBoundary>
 
         {/* Upload Zone */}
         <UploadZone onUpload={handleUpload} isUploading={isUploading} uploadError={uploadError} />
 
-        {/* Video Gallery */}
+        {/* Video Gallery Header */}
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-2xl font-bold text-gray-900">Your Videos</h2>
-          {videos.length > 0 && (
+          {allVideos.length > 0 && (
             <p className="text-sm text-gray-500">
-              {videos.length} video{videos.length !== 1 ? 's' : ''}
+              {allVideos.length} video{allVideos.length !== 1 ? 's' : ''} • Page {currentPage} of {totalPages || 1}
             </p>
           )}
         </div>
 
-        <VideoGrid videos={videos} isLoading={isLoading} />
+        {/* Video Grid - Wrapped in Error Boundary */}
+        <ErrorBoundary>
+          <VideoGrid 
+            videos={paginatedVideos} 
+            isLoading={isLoading} 
+            onDelete={handleDelete}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
+          />
+          
+          {totalPages > 1 && (
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={allVideos.length}
+              itemsPerPage={VIDEOS_PER_PAGE}
+              onPageChange={handlePageChange}
+            />
+          )}
+        </ErrorBoundary>
       </main>
     </div>
   );
