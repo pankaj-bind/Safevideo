@@ -1,37 +1,26 @@
 /**
  * Navbar Component
- * Global navigation bar with branding, theme toggle, and auth controls
+ * Minimal, professional navigation bar - blends with dark graphite theme
  */
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Sun, Moon, LogOut, LogIn } from 'lucide-react';
 
-// SafeVideo Logo SVG Component
-const SafeVideoLogo: React.FC<{ className?: string }> = ({ className }) => (
+// Minimal Play Logo - Clean geometric design
+const PlayLogo: React.FC<{ className?: string }> = ({ className }) => (
   <svg
-    viewBox="0 0 48 48"
+    viewBox="0 0 32 32"
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
     className={className}
+    style={{ width: 28, height: 28 }}
   >
-    <defs>
-      <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stopColor="#3b82f6" />
-        <stop offset="100%" stopColor="#8b5cf6" />
-      </linearGradient>
-    </defs>
-    <rect width="48" height="48" rx="12" fill="url(#logoGradient)" />
+    <rect width="32" height="32" rx="8" fill="#3ea6ff" />
     <path
-      d="M18 16C18 14.8954 18.8954 14 20 14H28C29.1046 14 30 14.8954 30 16V32C30 33.1046 29.1046 34 28 34H20C18.8954 34 18 33.1046 18 32V16Z"
-      fill="white"
-      fillOpacity="0.3"
-    />
-    <path
-      d="M20 18L32 24L20 30V18Z"
+      d="M12 10L23 16L12 22V10Z"
       fill="white"
     />
-    <circle cx="16" cy="24" r="3" fill="white" fillOpacity="0.6" />
   </svg>
 );
 
@@ -54,43 +43,40 @@ const Navbar: React.FC<NavbarProps> = ({ theme, onThemeToggle }) => {
 
   return (
     <header className="navbar">
-      <div className="navbar-container">
-        {/* Left: Brand */}
-        <Link to="/" className="navbar-brand">
-          <SafeVideoLogo className="navbar-logo" />
-          <div className="navbar-brand-text">
-            <span className="navbar-title">SafeVideo</span>
-            <span className="navbar-subtitle">Secure Video Platform</span>
-          </div>
+      <div className="navbar__container">
+        {/* Brand */}
+        <Link to="/" className="navbar__brand">
+          <PlayLogo className="navbar__logo" />
+          <span className="navbar__title">SafeVideo</span>
         </Link>
 
-        {/* Right: Actions */}
-        <div className="navbar-actions">
+        {/* Actions */}
+        <div className="navbar__actions">
           {/* Theme Toggle */}
           <button
             onClick={onThemeToggle}
-            className="navbar-btn navbar-btn--icon"
-            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="btn btn--ghost btn--icon"
+            title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
             aria-label="Toggle theme"
           >
-            {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
 
-          {/* Auth Button */}
+          {/* Auth */}
           {isAuthenticated ? (
             <>
-              <span className="navbar-user">
-                Welcome, <strong>{user?.username}</strong>
+              <span className="navbar__user">
+                <strong>{user?.username}</strong>
               </span>
-              <button onClick={handleLogout} className="navbar-btn navbar-btn--danger">
-                <LogOut size={18} />
+              <button onClick={handleLogout} className="btn btn--ghost">
+                <LogOut size={16} />
                 <span>Logout</span>
               </button>
             </>
           ) : (
-            <button onClick={handleLogin} className="navbar-btn navbar-btn--primary">
-              <LogIn size={18} />
-              <span>Log in</span>
+            <button onClick={handleLogin} className="btn btn--primary">
+              <LogIn size={16} />
+              <span>Sign in</span>
             </button>
           )}
         </div>

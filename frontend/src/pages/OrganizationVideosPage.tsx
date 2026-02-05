@@ -6,7 +6,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import axiosInstance from '../api/axiosInstance';
-import { API_ENDPOINTS, API_CONFIG } from '../config/api.config';
+import { API_ENDPOINTS } from '../config/api.config';
 import { 
   ArrowLeft,
   Upload,
@@ -158,10 +158,9 @@ const UploadModal: React.FC<{
 const VideoCard: React.FC<{
   video: Video;
   onDelete: (id: number) => void;
-  onClick: () => void;
   categorySlug: string;
   organizationSlug: string;
-}> = ({ video, onDelete, onClick, categorySlug, organizationSlug }) => {
+}> = ({ video, onDelete, categorySlug, organizationSlug }) => {
   const [isDeleting, setIsDeleting] = useState(false);
   const navigate = useNavigate();
 
@@ -498,7 +497,6 @@ const OrganizationVideosPage: React.FC = () => {
                 key={video.id}
                 video={video}
                 onDelete={handleDelete}
-                onClick={() => {}}
                 categorySlug={categorySlug!}
                 organizationSlug={organizationSlug!}
               />

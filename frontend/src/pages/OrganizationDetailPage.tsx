@@ -25,11 +25,8 @@ import {
   SkipBack,
   SkipForward,
   X,
-  Settings,
-  Minimize,
   StickyNote,
-  Send,
-  Edit2
+  Send
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -78,7 +75,6 @@ const NotesSection: React.FC<{
   const [notes, setNotes] = useState<Note[]>([]);
   const [noteContent, setNoteContent] = useState('');
   const [includeTimestamp, setIncludeTimestamp] = useState(false);
-  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
 
   // Load notes from localStorage
   useEffect(() => {
@@ -263,7 +259,7 @@ const VideoPlayer: React.FC<{
   onTheaterModeToggle: () => void;
   onTimeUpdate?: (time: number) => void;
   seekToTime?: number;
-}> = ({ video, onNext, onPrevious, hasNext, hasPrevious, isTheaterMode, onTheaterModeToggle, onTimeUpdate, seekToTime }) => {
+}> = ({ video, onNext, hasNext, isTheaterMode, onTheaterModeToggle, onTimeUpdate, seekToTime }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -274,7 +270,7 @@ const VideoPlayer: React.FC<{
   const [playbackRate, setPlaybackRate] = useState(0.5);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
-  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const playbackRates = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
