@@ -76,19 +76,50 @@ class DriveService:
         
         self.service = build('drive', 'v3', credentials=self.creds)
 
-    def upload_file(self, file_path, title):
+    def upload_file(self, file_path, title, folder_path=None):
         """Upload file to Google Drive with optimized 10MB chunks for faster upload.
+        
+        Args:
+            file_path: Path to the local file
+            title: Name for the file in Drive
+            folder_path: Optional category/organization path (e.g., "Work/ProjectA")
         
         Performance Notes:
         - 10MB chunks reduce HTTP overhead significantly vs default 256KB
         - Resumable upload allows recovery from network interruptions
         - Typically 2-3x faster upload for large files (500MB+)
         """
-        folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
+        # Get or create folder hierarchy
+        parent_folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
+        
+        if folder_path and parent_folder_id:
+            # Create nested folder structure: root -> category -> organization
+            folder_names = folder_path.split('/')
+            current_parent = parent_folder_id
+            
+            for folder_name in folder_names:
+                # Check if folder exists
+                query = f"name='{folder_name}' and '{current_parent}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+                results = self.service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
+                folders = results.get('files', [])
+                
+                if folders:
+                    current_parent = folders[0]['id']
+                else:
+                    # Create the folder
+                    folder_metadata = {
+                        'name': folder_name,
+                        'mimeType': 'application/vnd.google-apps.folder',
+                        'parents': [current_parent]
+                    }
+                    folder = self.service.files().create(body=folder_metadata, fields='id').execute()
+                    current_parent = folder.get('id')
+            
+            parent_folder_id = current_parent
         
         file_metadata = {
             'name': title,
-            'parents': [folder_id] if folder_id else []
+            'parents': [parent_folder_id] if parent_folder_id else []
         }
         
         # 10MB chunks for optimal upload performance
@@ -149,6 +180,54 @@ class DriveService:
             self.service.files().delete(fileId=file_id).execute()
         except Exception as e:
             print(f"Error deleting file from Drive: {e}")
+
+    def list_folder_files(self, folder_path):
+        """List all video files in a specific Google Drive folder path.
+        
+        Args:
+            folder_path: Category/Organization path (e.g., "Work/ProjectA")
+        
+        Returns:
+            List of dicts with file metadata: id, name, size, mimeType, createdTime
+        """
+        try:
+            parent_folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
+            
+            if not parent_folder_id:
+                raise Exception("GOOGLE_DRIVE_FOLDER_ID not configured")
+            
+            # Navigate to the target folder
+            if folder_path:
+                folder_names = folder_path.split('/')
+                current_parent = parent_folder_id
+                
+                for folder_name in folder_names:
+                    query = f"name='{folder_name}' and '{current_parent}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+                    results = self.service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
+                    folders = results.get('files', [])
+                    
+                    if not folders:
+                        # Folder doesn't exist yet
+                        return []
+                    
+                    current_parent = folders[0]['id']
+                
+                parent_folder_id = current_parent
+            
+            # List all video files in the target folder
+            query = f"'{parent_folder_id}' in parents and mimeType contains 'video/' and trashed=false"
+            results = self.service.files().list(
+                q=query,
+                spaces='drive',
+                fields='files(id, name, size, mimeType, createdTime)',
+                orderBy='createdTime desc'
+            ).execute()
+            
+            return results.get('files', [])
+            
+        except Exception as e:
+            print(f"Error listing folder files: {e}")
+            return []
 
 class VideoProcessor:
     def __init__(self, input_path, output_path):
@@ -217,7 +296,7 @@ class VideoProcessor:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return process
 
-def process_video_background(video_id, temp_file_path, original_filename):
+def process_video_background(video_id, temp_file_path, original_filename, folder_path=None):
     close_old_connections()
     
     try:
@@ -248,7 +327,7 @@ def process_video_background(video_id, temp_file_path, original_filename):
             raise Exception(f"FFmpeg failed: {error_log}")
 
         drive_service = DriveService()
-        file_id = drive_service.upload_file(output_path, f"Processed_{original_filename}")
+        file_id = drive_service.upload_file(output_path, f"Processed_{original_filename}", folder_path)
 
         video.file_id = file_id
         video.status = 'COMPLETED'
@@ -280,11 +359,12 @@ def process_video_background(video_id, temp_file_path, original_filename):
         unregister_processing(video_id)
         close_old_connections()
 
-def start_background_processing(video_id, temp_file_path, original_filename):
+def start_background_processing(video_id, temp_file_path, original_filename, folder_path=None):
     """Submit processing to the shared worker pool for parallel execution."""
     PROCESSING_EXECUTOR.submit(
         process_video_background,
         video_id,
         temp_file_path,
-        original_filename
+        original_filename,
+        folder_path
     )

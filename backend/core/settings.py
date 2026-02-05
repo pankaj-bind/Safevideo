@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     # Local
     'authentication',
     'videos',
+    'vault',
 ]
 
 MIDDLEWARE = [
@@ -150,7 +151,7 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': '20/minute',
-        'user': '100/minute',
+        'user': '1000/minute',  # Increased for chunked video uploads
     },
     'EXCEPTION_HANDLER': 'authentication.exceptions.custom_exception_handler',
 }
@@ -212,3 +213,9 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'True') == 'True'
     SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'True') == 'True'
     CSRF_COOKIE_SECURE = os.environ.get('CSRF_COOKIE_SECURE', 'True') == 'True'
+
+# =============================================================================
+# MEDIA FILES (User uploaded content)
+# =============================================================================
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'

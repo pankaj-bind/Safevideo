@@ -90,6 +90,8 @@ class CompleteUploadView(APIView):
             upload_id = request.data.get('upload_id')
             filename = request.data.get('filename', 'video.mp4')
             total_chunks = int(request.data.get('total_chunks', -1))
+            category_id = request.data.get('category')
+            organization_id = request.data.get('organization')
             
             chunk_view = ChunkedUploadView()
             metadata_key = chunk_view._get_upload_metadata_key(upload_id)
@@ -100,15 +102,29 @@ class CompleteUploadView(APIView):
 
             upload_path = chunk_view._get_upload_path(upload_id)
             
+            # Build folder path from category/organization
+            folder_path = None
+            if category_id and organization_id:
+                from vault.models import Category, Organization
+                try:
+                    category = Category.objects.get(id=category_id, user=request.user)
+                    organization = Organization.objects.get(id=organization_id, category=category)
+                    folder_path = f"{category.name}/{organization.name}"
+                except (Category.DoesNotExist, Organization.DoesNotExist):
+                    pass
+            
             # Create DB Record
             video = Video.objects.create(
                 user=request.user,
                 title=filename,
-                status='PENDING'
+                status='PENDING',
+                category_id=category_id if category_id else None,
+                organization_id=organization_id if organization_id else None,
+                folder_path=folder_path
             )
             
-            # Trigger Background Processing
-            start_background_processing(video.id, upload_path, filename)
+            # Trigger Background Processing with folder_path
+            start_background_processing(video.id, upload_path, filename, folder_path)
             
             # Cleanup Cache
             cache.delete(metadata_key)
@@ -126,8 +142,15 @@ class CompleteUploadView(APIView):
 class VideoListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     def get(self, request, *args, **kwargs):
-        videos = Video.objects.filter(user=request.user).order_by('-created_at').values(
-            'id', 'title', 'status', 'error_message', 'created_at', 'file_id'
+        queryset = Video.objects.filter(user=request.user).order_by('-created_at')
+        
+        # Filter by organization if provided
+        organization_id = request.query_params.get('organization')
+        if organization_id:
+            queryset = queryset.filter(organization_id=organization_id)
+        
+        videos = queryset.values(
+            'id', 'title', 'status', 'error_message', 'created_at', 'file_id', 'folder_path'
         )
         return Response(videos)
 
@@ -172,3 +195,78 @@ class VideoAbortView(APIView):
             return Response({'message': 'Processing aborted'}, status=status.HTTP_200_OK)
         except Video.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
+
+
+class SyncDriveVideosView(APIView):
+    """Sync videos from Google Drive folder to database"""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            organization_id = request.data.get('organization_id')
+            
+            if not organization_id:
+                return Response({'error': 'organization_id required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            from vault.models import Organization
+            try:
+                organization = Organization.objects.get(id=organization_id, category__user=request.user)
+            except Organization.DoesNotExist:
+                return Response({'error': 'Organization not found'}, status=status.HTTP_404_NOT_FOUND)
+            
+            # Build folder path
+            folder_path = f"{organization.category.name}/{organization.name}"
+            
+            # List files from Drive
+            drive_service = DriveService()
+            drive_files = drive_service.list_folder_files(folder_path)
+            
+            if not drive_files:
+                return Response({
+                    'message': 'No videos found in Drive folder',
+                    'synced': 0,
+                    'total': 0
+                }, status=status.HTTP_200_OK)
+            
+            # Get existing file_ids for this organization
+            existing_file_ids = set(
+                Video.objects.filter(
+                    organization=organization,
+                    user=request.user,
+                    file_id__isnull=False
+                ).values_list('file_id', flat=True)
+            )
+            
+            # Create Video records for new files
+            synced_count = 0
+            for drive_file in drive_files:
+                file_id = drive_file.get('id')
+                
+                # Skip if already tracked
+                if file_id in existing_file_ids:
+                    continue
+                
+                # Create new Video record
+                Video.objects.create(
+                    user=request.user,
+                    category=organization.category,
+                    organization=organization,
+                    title=drive_file.get('name', 'Untitled'),
+                    file_id=file_id,
+                    folder_path=folder_path,
+                    file_size=int(drive_file.get('size', 0)),
+                    mime_type=drive_file.get('mimeType'),
+                    status='COMPLETED'  # Already in Drive, no processing needed
+                )
+                synced_count += 1
+            
+            return Response({
+                'message': f'Synced {synced_count} new videos from Google Drive',
+                'synced': synced_count,
+                'total': len(drive_files)
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Sync error: {e}")
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+

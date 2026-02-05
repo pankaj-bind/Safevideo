@@ -54,10 +54,10 @@ const LandingPage: React.FC = () => {
     localStorage.setItem('sv-theme', theme);
   }, [theme]);
 
-  // Redirect to dashboard if already authenticated
+  // Redirect to home if already authenticated
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      navigate('/dashboard');
+      navigate('/home');
     }
   }, [isAuthenticated, isLoading, navigate]);
 

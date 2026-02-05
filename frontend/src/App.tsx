@@ -9,7 +9,10 @@ import ProtectedLayout from './components/ProtectedLayout';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
+import HomePage from './pages/HomePage';
 import DashboardPage from './pages/DashboardPage';
+import OrganizationVideosPage from './pages/OrganizationVideosPage';
+import OrganizationDetailPage from './pages/OrganizationDetailPage';
 
 const App: React.FC = () => {
   return (
@@ -25,13 +28,41 @@ const App: React.FC = () => {
 
           {/* Protected Routes */}
           <Route
-            path="/dashboard"
+            path="/home"
+            element={
+              <ProtectedLayout>
+                <HomePage />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/videos"
             element={
               <ProtectedLayout>
                 <DashboardPage />
               </ProtectedLayout>
             }
           />
+          <Route
+            path="/:categorySlug/:organizationSlug"
+            element={
+              <ProtectedLayout>
+                <OrganizationVideosPage />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/:categorySlug/:organizationSlug/:videoSlug"
+            element={
+              <ProtectedLayout>
+                <OrganizationDetailPage />
+              </ProtectedLayout>
+            }
+          />
+          
+          {/* Backward compatibility - redirect old routes to home */}
+          <Route path="/category/:categoryId/organization/:organizationId" element={<Navigate to="/home" replace />} />
+          <Route path="/dashboard" element={<Navigate to="/home" replace />} />
           
           {/* 404 Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />

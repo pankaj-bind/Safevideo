@@ -13,8 +13,11 @@ class Video(models.Model):
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='videos')
+    category = models.ForeignKey('vault.Category', on_delete=models.CASCADE, related_name='videos', null=True, blank=True)
+    organization = models.ForeignKey('vault.Organization', on_delete=models.CASCADE, related_name='videos', null=True, blank=True)
     title = models.CharField(max_length=255)
     file_id = models.CharField(max_length=255, blank=True, null=True, help_text="Google Drive File ID")
+    folder_path = models.CharField(max_length=500, blank=True, null=True, help_text="Category/Organization path")
     file_size = models.BigIntegerField(null=True, blank=True)
     mime_type = models.CharField(max_length=100, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
