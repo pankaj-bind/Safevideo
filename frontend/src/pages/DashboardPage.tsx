@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axiosInstance from '../api/axiosInstance';
-import { useAuth } from '../context/AuthContext';
 import { API_ENDPOINTS, API_CONFIG } from '../config/api.config';
 import ErrorBoundary from '../components/ErrorBoundary';
+import Navbar from '../components/Navbar';
 import { 
   Upload, 
   Play, 
@@ -12,13 +12,10 @@ import {
   Film, 
   Loader2, 
   CloudUpload,
-  LogOut,
   RefreshCw,
   Trash2,
   ChevronLeft,
-  ChevronRight,
-  Sun,
-  Moon
+  ChevronRight
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -440,7 +437,6 @@ const DashboardPage: React.FC = () => {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [isTabVisible, setIsTabVisible] = useState(true);
-  const { logout } = useAuth();
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -565,40 +561,13 @@ const DashboardPage: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleThemeToggle = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
+
   return (
     <div className="sv-dashboard">
-      <header className="sv-header">
-        <div className="sv-shell">
-          <div className="sv-brand">
-            <div className="sv-logo">
-              <Film />
-            </div>
-            <div>
-              <p className="sv-brand-title">SafeVideo</p>
-              <p className="sv-brand-subtitle">Secure uploads, cinematic clarity</p>
-            </div>
-          </div>
-
-          <div className="sv-actions">
-            <button
-              onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
-              className="sv-button sv-button--ghost"
-              title="Toggle theme"
-            >
-              {theme === 'dark' ? <Sun /> : <Moon />}
-              {theme === 'dark' ? 'Light' : 'Dark'}
-            </button>
-            <button onClick={fetchVideos} className="sv-button sv-button--ghost" title="Refresh">
-              <RefreshCw />
-              Refresh
-            </button>
-            <button onClick={logout} className="sv-button sv-button--danger">
-              <LogOut />
-              Logout
-            </button>
-          </div>
-        </div>
-      </header>
+      <Navbar theme={theme} onThemeToggle={handleThemeToggle} />
 
       <main className="sv-shell sv-main">
         <div className="sv-hero">
@@ -611,6 +580,13 @@ const DashboardPage: React.FC = () => {
             <p className="sv-hero-value">Google Drive</p>
             <p className="sv-hero-caption">Optimized resumable uploads</p>
           </div>
+        </div>
+
+        <div className="sv-refresh-bar">
+          <button onClick={fetchVideos} className="sv-button sv-button--ghost" title="Refresh videos">
+            <RefreshCw size={18} />
+            Refresh
+          </button>
         </div>
 
         <ErrorBoundary>

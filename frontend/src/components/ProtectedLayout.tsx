@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import type { ProtectedLayoutProps } from '../types/api.types';
 
 const ProtectedLayout: React.FC<ProtectedLayoutProps> = ({ children }) => {
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 
   // Show loading spinner during session verification
@@ -33,20 +33,8 @@ const ProtectedLayout: React.FC<ProtectedLayoutProps> = ({ children }) => {
 
   return (
     <div className="protected-layout">
-      {/* Header */}
-      <header className="dashboard-header">
-        <div className="header-content">
-          <h1>SafeVideo</h1>
-          <nav className="header-nav">
-            <span className="user-info">
-              Welcome, {user?.username}
-            </span>
-          </nav>
-        </div>
-      </header>
-
       {/* Main Content */}
-      <main className="dashboard-main">
+      <main className="protected-main">
         {children}
       </main>
 
