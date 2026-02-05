@@ -1,312 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../api/axiosInstance';
-import { API_ENDPOINTS, API_CONFIG } from '../config/api.config';
-import ErrorBoundary from '../components/ErrorBoundary';
+import { API_ENDPOINTS } from '../config/api.config';
 import Navbar from '../components/Navbar';
-import { 
-  Upload, 
-  Play, 
-  AlertCircle, 
-  CheckCircle, 
-  Clock, 
-  Film, 
-  Loader2, 
-  CloudUpload,
-  RefreshCw,
-  Trash2,
-  ChevronLeft,
-  ChevronRight
-} from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
-
-// =============================================================================
-// TYPES
-// =============================================================================
-type VideoStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
-
-interface Video {
-  id: number;
-  title: string;
-  status: VideoStatus;
-  error_message?: string | null;
-  created_at: string;
-  file_id?: string | null;
-}
-
-interface StatsData {
-  total: number;
-  processing: number;
-  completed: number;
-  failed: number;
-}
-
-const VIDEOS_PER_PAGE = 9;
-
-// =============================================================================
-// STATS OVERVIEW COMPONENT
-// =============================================================================
-const StatsOverview: React.FC<{ stats: StatsData; isLoading: boolean }> = ({ stats, isLoading }) => {
-  const statItems = [
-    { label: 'Total Videos', value: stats.total, icon: Film, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Processing', value: stats.processing, icon: Loader2, color: 'text-yellow-600', bg: 'bg-yellow-50' },
-    { label: 'Completed', value: stats.completed, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50' },
-    { label: 'Failed', value: stats.failed, icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
-  ];
-
-  return (
-    <div className="sv-stats">
-      {statItems.map((item) => (
-        <div
-          key={item.label}
-          className="sv-card sv-card--stat"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="sv-muted">{item.label}</p>
-              {isLoading ? (
-                <div className="sv-skeleton" />
-              ) : (
-                <p className="sv-stat-value">{item.value}</p>
-              )}
-            </div>
-            <div className="sv-stat-icon">
-              <item.icon className={item.label === 'Processing' && stats.processing > 0 ? 'sv-spin' : ''} />
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-// =============================================================================
-// UPLOAD ZONE COMPONENT
-// =============================================================================
-const UploadZone: React.FC<{
-  onUpload: (file: File) => void;
-  isUploading: boolean;
-  uploadError: string | null;
-}> = ({ onUpload, isUploading, uploadError }) => {
-  const [isDragOver, setIsDragOver] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragOver(false);
-      const file = e.dataTransfer.files[0];
-      if (file && file.type.startsWith('video/')) {
-        onUpload(file);
-      }
-    },
-    [onUpload]
-  );
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      onUpload(file);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  return (
-    <div className="sv-section">
-      <div
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        onClick={() => !isUploading && fileInputRef.current?.click()}
-        className={`sv-upload ${isDragOver ? 'sv-upload--active' : ''} ${isUploading ? 'sv-disabled' : ''}`}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="video/*"
-          onChange={handleFileChange}
-          className="hidden"
-          disabled={isUploading}
-        />
-
-        <div className="sv-upload-content">
-          {isUploading ? (
-            <>
-              <div className="sv-upload-spinner">
-                <div className="sv-spinner" />
-                <CloudUpload className="sv-spinner-icon" />
-              </div>
-              <p className="sv-title">Uploading your video...</p>
-              <p className="sv-muted">Please wait while we process your file</p>
-            </>
-          ) : (
-            <>
-              <div className="sv-upload-icon">
-                <Upload />
-              </div>
-              <p className="sv-title">
-                {isDragOver ? 'Drop your video here!' : 'Drag & drop your video'}
-              </p>
-              <p className="sv-muted">
-                or <span className="sv-link">browse files</span>
-              </p>
-              <p className="sv-caption">Supports MP4, MOV, AVI, and more</p>
-            </>
-          )}
-        </div>
-      </div>
-
-      {uploadError && (
-        <div className="sv-alert sv-alert--error">
-          <AlertCircle className="sv-alert-icon" />
-          <div>
-            <p className="sv-alert-title">Upload Failed</p>
-            <p className="sv-alert-text">{uploadError}</p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// =============================================================================
-// VIDEO CARD COMPONENT
-// =============================================================================
-const VideoCard: React.FC<{ video: Video; onDelete: (id: number) => void }> = ({ video, onDelete }) => {
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  const getStatusConfig = (status: VideoStatus) => {
-    switch (status) {
-      case 'COMPLETED':
-        return {
-          badge: 'bg-green-100 text-green-700 border-green-200',
-          icon: CheckCircle,
-          label: 'Completed',
-        };
-      case 'PROCESSING':
-        return {
-          badge: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-          icon: Loader2,
-          label: 'Processing',
-        };
-      case 'FAILED':
-        return {
-          badge: 'bg-red-100 text-red-700 border-red-200',
-          icon: AlertCircle,
-          label: 'Failed',
-        };
-      default:
-        return {
-          badge: 'bg-gray-100 text-gray-700 border-gray-200',
-          icon: Clock,
-          label: 'Pending',
-        };
-    }
-  };
-
-  const handleDelete = async () => {
-    if (window.confirm(`Are you sure you want to delete "${video.title}"? This action cannot be undone.`)) {
-      setIsDeleting(true);
-      onDelete(video.id);
-    }
-  };
-
-  const statusConfig = getStatusConfig(video.status);
-  const StatusIcon = statusConfig.icon;
-
-  return (
-    <div className={`sv-card sv-card--video ${isDeleting ? 'sv-disabled' : ''}`}>
-      {/* Delete Button */}
-      <button
-        onClick={handleDelete}
-        disabled={isDeleting}
-        className="sv-delete"
-        title="Delete video"
-      >
-        {isDeleting ? (
-          <Loader2 className="sv-spin" />
-        ) : (
-          <Trash2 />
-        )}
-      </button>
-
-      {/* Video Player / Preview Area */}
-      <div className="sv-video-shell">
-        {video.status === 'COMPLETED' && video.file_id ? (
-          <video
-            controls
-            preload="metadata"
-            className="sv-video"
-            poster={`data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 225'><rect fill='%231f2937' width='400' height='225'/><text x='200' y='112' text-anchor='middle' fill='%236b7280' font-size='14'>Loading...</text></svg>`}
-          >
-            <source
-              src={`${API_CONFIG.BASE_URL}${API_ENDPOINTS.VIDEOS.STREAM(video.file_id)}`}
-              type="video/mp4"
-            />
-            Your browser does not support the video tag.
-          </video>
-        ) : (
-          <div className="sv-video-status">
-            {video.status === 'PROCESSING' && (
-              <>
-                <div className="sv-processing">
-                  <div className="sv-processing-ring" />
-                  <Play className="sv-processing-icon" />
-                </div>
-                <p className="sv-video-title">Processing your video...</p>
-                <p className="sv-video-caption">This may take a few minutes</p>
-              </>
-            )}
-            {video.status === 'PENDING' && (
-              <>
-                <Clock className="sv-muted" />
-                <p className="sv-video-caption">Waiting in queue...</p>
-              </>
-            )}
-            {video.status === 'FAILED' && (
-              <>
-                <AlertCircle className="sv-error" />
-                <p className="sv-video-error">Processing Failed</p>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Card Content */}
-      <div className="sv-card-body">
-        <div className="sv-card-header">
-          <h3 className="sv-card-title" title={video.title}>
-            {video.title}
-          </h3>
-          <span className={`sv-badge sv-badge--${video.status.toLowerCase()}`}>
-            <StatusIcon className={video.status === 'PROCESSING' ? 'sv-spin' : ''} />
-            {statusConfig.label}
-          </span>
-        </div>
-
-        <p className="sv-muted">
-          {formatDistanceToNow(new Date(video.created_at), { addSuffix: true })}
-        </p>
-
-        {video.status === 'FAILED' && video.error_message && (
-          <div className="sv-error-card">
-            <p>{video.error_message}</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
+import { ChevronLeft, ChevronRight, Play, RefreshCw, Trash2, Upload } from 'lucide-react';
 
 // =============================================================================
 // PAGINATION COMPONENT
@@ -334,7 +31,7 @@ const Pagination: React.FC<{
         <button
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1}
-          className="sv-button sv-button--ghost"
+          className="sv-action"
         >
           <ChevronLeft />
           Previous
@@ -345,7 +42,7 @@ const Pagination: React.FC<{
             <button
               key={page}
               onClick={() => onPageChange(page)}
-              className={`sv-page ${page === currentPage ? 'sv-page--active' : ''}`}
+              className={`sv-action sv-page ${page === currentPage ? 'sv-page--active' : ''}`}
             >
               {page}
             </button>
@@ -355,7 +52,7 @@ const Pagination: React.FC<{
         <button
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage === totalPages}
-          className="sv-button sv-button--ghost"
+          className="sv-action"
         >
           Next
           <ChevronRight />
@@ -366,67 +63,39 @@ const Pagination: React.FC<{
 };
 
 // =============================================================================
-// VIDEO GRID COMPONENT
+// TYPES
 // =============================================================================
-const VideoGrid: React.FC<{ 
-  videos: Video[]; 
-  isLoading: boolean; 
-  onDelete: (id: number) => void;
-  currentPage: number;
-  totalPages: number;
-  onPageChange: (page: number) => void;
-}> = ({ videos, isLoading, onDelete, currentPage, totalPages, onPageChange }) => {
-  if (isLoading && videos.length === 0) {
-    return (
-      <div className="sv-grid">
-        {[...Array(6)].map((_, i) => (
-          <div key={i} className="sv-card sv-card--video">
-            <div className="sv-skeleton-video" />
-            <div className="sv-card-body">
-              <div className="sv-skeleton-line" />
-              <div className="sv-skeleton-line sv-skeleton-line--short" />
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
+type VideoStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELED';
 
-  if (videos.length === 0) {
-    return (
-      <div className="sv-empty">
-        <Film />
-        <h3>No videos yet</h3>
-        <p>Upload your first video to get started!</p>
-      </div>
-    );
-  }
+type Video = {
+  id: number;
+  title: string;
+  status: VideoStatus;
+  created_at: string;
+  file_id?: string | null;
+  folder_path?: string | null;
+  error_message?: string | null;
+};
 
-  return (
-    <>
-      <div className="sv-grid">
-        {videos.map((video) => (
-          <VideoCard key={video.id} video={video} onDelete={onDelete} />
-        ))}
-      </div>
-      
-      {totalPages > 1 && (
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          totalItems={videos.length * totalPages} // Approximate, will be corrected by parent
-          itemsPerPage={VIDEOS_PER_PAGE}
-          onPageChange={onPageChange}
-        />
-      )}
-    </>
-  );
+const VIDEOS_PER_PAGE = 25;
+
+const getCategoryLabel = (folderPath?: string | null) => {
+  if (!folderPath) return '—';
+  const first = folderPath.split('/')[0];
+  return first || '—';
+};
+
+const formatUploadedAt = (iso: string) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString();
 };
 
 // =============================================================================
 // MAIN DASHBOARD PAGE
 // =============================================================================
 const DashboardPage: React.FC = () => {
+  const navigate = useNavigate();
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const stored = localStorage.getItem('sv-theme');
     return stored === 'dark' ? 'dark' : 'light';
@@ -437,6 +106,7 @@ const DashboardPage: React.FC = () => {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [isTabVisible, setIsTabVisible] = useState(true);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -449,14 +119,6 @@ const DashboardPage: React.FC = () => {
     (currentPage - 1) * VIDEOS_PER_PAGE,
     currentPage * VIDEOS_PER_PAGE
   );
-
-  // Stats from all videos (not paginated)
-  const stats: StatsData = {
-    total: allVideos.length,
-    processing: allVideos.filter((v) => v.status === 'PROCESSING').length,
-    completed: allVideos.filter((v) => v.status === 'COMPLETED').length,
-    failed: allVideos.filter((v) => v.status === 'FAILED').length,
-  };
 
   const fetchVideos = useCallback(async () => {
     try {
@@ -565,68 +227,153 @@ const DashboardPage: React.FC = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
 
+  const handleOpen = (video: Video) => {
+    if (video.status !== 'COMPLETED' || !video.file_id) return;
+    navigate(`/watch/${video.id}`);
+  };
+
+  const durationLabel = useMemo(() => '—', []);
+
   return (
     <div className="sv-dashboard">
       <Navbar theme={theme} onThemeToggle={handleThemeToggle} />
 
       <main className="sv-shell sv-main">
-        <div className="sv-hero">
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 16 }}>
           <div>
-            <h1>Upload once. Stream everywhere.</h1>
-            <p>Lightning-fast processing, instant previews, and polished status cards.</p>
-          </div>
-          <div className="sv-hero-card">
-            <p className="sv-muted">Storage</p>
-            <p className="sv-hero-value">Google Drive</p>
-            <p className="sv-hero-caption">Optimized resumable uploads</p>
-          </div>
-        </div>
-
-        <div className="sv-refresh-bar">
-          <button onClick={fetchVideos} className="sv-button sv-button--ghost" title="Refresh videos">
-            <RefreshCw size={18} />
-            Refresh
-          </button>
-        </div>
-
-        <ErrorBoundary>
-          <StatsOverview stats={stats} isLoading={isLoading} />
-        </ErrorBoundary>
-
-        <UploadZone onUpload={handleUpload} isUploading={isUploading} uploadError={uploadError} />
-
-        <div className="sv-section-header">
-          <div>
-            <h2>Your Videos</h2>
-            <p className="sv-muted">Manage uploads and review processing status.</p>
-          </div>
-          {allVideos.length > 0 && (
-            <p className="sv-muted">
-              {allVideos.length} video{allVideos.length !== 1 ? 's' : ''} • Page {currentPage} of {totalPages || 1}
+            <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>Videos</h1>
+            <p style={{ margin: '6px 0 0 0', color: 'var(--text-secondary)', fontSize: 13 }}>
+              Compact library view. Click a row to open.
             </p>
-          )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button className="sv-action" onClick={fetchVideos} title="Refresh">
+              <RefreshCw size={16} />
+              Refresh
+            </button>
+            <button
+              className="sv-action"
+              onClick={() => !isUploading && fileInputRef.current?.click()}
+              title="Upload"
+            >
+              <Upload size={16} />
+              {isUploading ? 'Uploading…' : 'Upload'}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*"
+              style={{ display: 'none' }}
+              disabled={isUploading}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleUpload(file);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+              }}
+            />
+          </div>
         </div>
 
-        <ErrorBoundary>
-          <VideoGrid 
-            videos={paginatedVideos} 
-            isLoading={isLoading} 
-            onDelete={handleDelete}
+        {uploadError ? (
+          <div style={{ marginBottom: 12, color: 'var(--danger)', fontSize: 13 }}>
+            {uploadError}
+          </div>
+        ) : null}
+
+        <div className="sv-table-wrap" aria-busy={isLoading}>
+          <table className="sv-table">
+            <thead>
+              <tr>
+                <th style={{ width: 88 }}>Thumbnail</th>
+                <th>Title</th>
+                <th style={{ width: 180 }}>Category</th>
+                <th style={{ width: 120 }}>Duration</th>
+                <th style={{ width: 220 }}>Uploaded At</th>
+                <th style={{ width: 200 }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedVideos.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="sv-cell-muted" style={{ height: 60 }}>
+                    {isLoading ? 'Loading…' : 'No videos found.'}
+                  </td>
+                </tr>
+              ) : (
+                paginatedVideos.map((v) => {
+                  const canOpen = v.status === 'COMPLETED' && !!v.file_id;
+                  return (
+                    <tr
+                      key={v.id}
+                      onClick={() => canOpen && handleOpen(v)}
+                      style={{ cursor: canOpen ? 'pointer' : 'default' }}
+                    >
+                      <td>
+                        <span className="sv-thumb" title={canOpen ? 'Ready' : `Status: ${v.status}`}>
+                          <Play size={14} />
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                            {v.title}
+                          </span>
+                          <span className="sv-cell-muted" style={{ fontSize: 12 }}>
+                            {v.status}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="sv-cell-muted">{getCategoryLabel(v.folder_path)}</td>
+                      <td className="sv-cell-muted">{durationLabel}</td>
+                      <td className="sv-cell-muted" title={v.created_at}>
+                        {formatUploadedAt(v.created_at)}
+                      </td>
+                      <td>
+                        <div className="sv-actions-cell">
+                          <button
+                            className="sv-action"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpen(v);
+                            }}
+                            disabled={!canOpen}
+                            title={canOpen ? 'Open' : 'Not ready'}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="sv-action sv-action--danger"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (window.confirm(`Delete "${v.title}"? This cannot be undone.`)) {
+                                handleDelete(v.id);
+                              }
+                            }}
+                            title="Delete"
+                          >
+                            <Trash2 size={16} />
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {totalPages > 1 ? (
+          <Pagination
             currentPage={currentPage}
             totalPages={totalPages}
+            totalItems={allVideos.length}
+            itemsPerPage={VIDEOS_PER_PAGE}
             onPageChange={handlePageChange}
           />
-          
-          {totalPages > 1 && (
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              totalItems={allVideos.length}
-              itemsPerPage={VIDEOS_PER_PAGE}
-              onPageChange={handlePageChange}
-            />
-          )}
-        </ErrorBoundary>
+        ) : null}
       </main>
     </div>
   );

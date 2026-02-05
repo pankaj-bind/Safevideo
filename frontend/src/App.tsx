@@ -13,6 +13,7 @@ import HomePage from './pages/HomePage';
 import DashboardPage from './pages/DashboardPage';
 import OrganizationVideosPage from './pages/OrganizationVideosPage';
 import OrganizationDetailPage from './pages/OrganizationDetailPage';
+import WatchPage from './pages/WatchPage';
 
 const App: React.FC = () => {
   return (
@@ -40,6 +41,14 @@ const App: React.FC = () => {
             element={
               <ProtectedLayout>
                 <DashboardPage />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/watch/:videoId"
+            element={
+              <ProtectedLayout>
+                <WatchPage />
               </ProtectedLayout>
             }
           />
