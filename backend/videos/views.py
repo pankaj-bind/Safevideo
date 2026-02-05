@@ -19,10 +19,11 @@ class ChunkedUploadView(APIView):
     Handle chunked video uploads for large files.
     """
     permission_classes = [permissions.IsAuthenticated]
-    parser_classes = (MultiPartParser, FormParser) # ✅ REQUIRED for file uploads
+    parser_classes = (MultiPartParser, FormParser)
     
     UPLOAD_TEMP_DIR = os.path.join(tempfile.gettempdir(), 'video_uploads')
-    CHUNK_TIMEOUT = 3600 * 24 # 24 hours retention for incomplete uploads
+    CHUNK_TIMEOUT = 3600 * 24  # 24 hours retention for incomplete uploads
+    MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024  # 10 GB limit
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -62,6 +63,23 @@ class ChunkedUploadView(APIView):
             if metadata['user_id'] != request.user.id:
                 return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
             
+            # Verify chunk ordering — chunks must arrive sequentially
+            expected_index = len(metadata['uploaded_chunks'])
+            if chunk_index != expected_index:
+                return Response(
+                    {'error': f'Expected chunk {expected_index}, got {chunk_index}. Chunks must be sent in order.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check cumulative file size limit
+            chunk_size = chunk.size
+            current_size = metadata.get('total_size', 0)
+            if current_size + chunk_size > self.MAX_FILE_SIZE:
+                return Response(
+                    {'error': f'File exceeds maximum size of {self.MAX_FILE_SIZE // (1024**3)} GB'},
+                    status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+                )
+            
             # Append chunk
             upload_path = self._get_upload_path(upload_id)
             with open(upload_path, 'ab') as f:
@@ -69,6 +87,7 @@ class ChunkedUploadView(APIView):
                     f.write(chunk_data)
             
             metadata['uploaded_chunks'].add(chunk_index)
+            metadata['total_size'] = metadata.get('total_size', 0) + chunk.size
             cache.set(metadata_key, metadata, timeout=self.CHUNK_TIMEOUT)
             
             return Response({
@@ -141,6 +160,7 @@ class CompleteUploadView(APIView):
 
 class VideoListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    
     def get(self, request, *args, **kwargs):
         queryset = Video.objects.filter(user=request.user).order_by('-created_at')
         
@@ -149,22 +169,77 @@ class VideoListView(generics.ListAPIView):
         if organization_id:
             queryset = queryset.filter(organization_id=organization_id)
         
+        # Optional pagination
+        page = request.query_params.get('page')
+        page_size = request.query_params.get('page_size')
+        
+        if page and page_size:
+            try:
+                page = int(page)
+                page_size = min(int(page_size), 100)  # Cap at 100
+                offset = (page - 1) * page_size
+                total = queryset.count()
+                videos = list(queryset.values(
+                    'id', 'title', 'status', 'progress', 'error_message', 'created_at',
+                    'file_id', 'folder_path', 'file_size', 'mime_type'
+                )[offset:offset + page_size])
+                return Response({
+                    'results': videos,
+                    'total': total,
+                    'page': page,
+                    'page_size': page_size,
+                })
+            except (ValueError, TypeError):
+                pass
+        
+        # Default: return all (backward compatible)
         videos = queryset.values(
-            'id', 'title', 'status', 'error_message', 'created_at', 'file_id', 'folder_path'
+            'id', 'title', 'status', 'progress', 'error_message', 'created_at',
+            'file_id', 'folder_path', 'file_size', 'mime_type'
         )
-        return Response(videos)
+        return Response(list(videos))
+
+class VideoDetailView(APIView):
+    """Get a single video by ID"""
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request, pk):
+        try:
+            video = Video.objects.get(id=pk, user=request.user)
+            return Response({
+                'id': video.id,
+                'title': video.title,
+                'status': video.status,
+                'error_message': video.error_message,
+                'created_at': video.created_at,
+                'file_id': video.file_id,
+                'folder_path': video.folder_path,
+                'file_size': video.file_size,
+                'mime_type': video.mime_type,
+            })
+        except Video.DoesNotExist:
+            return Response({'error': 'Video not found'}, status=status.HTTP_404_NOT_FOUND)
+
 
 class StreamVideoView(APIView):
-    permission_classes = [permissions.AllowAny]
+    """Stream video - requires authentication and ownership check"""
+    permission_classes = [permissions.IsAuthenticated]
+    
     def get(self, request, file_id):
         try:
+            # Verify the user owns a video with this file_id
+            if not Video.objects.filter(user=request.user, file_id=file_id).exists():
+                return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+            
             drive_service = DriveService()
             file_iterator = drive_service.get_file_iterator(file_id)
             response = StreamingHttpResponse(file_iterator, content_type='video/mp4')
             response['Content-Disposition'] = 'inline; filename="video.mp4"'
+            response['Accept-Ranges'] = 'bytes'
             return response
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
+            logger.error(f"Stream error: {e}")
+            return Response({'error': 'Failed to stream video'}, status=status.HTTP_404_NOT_FOUND)
 
 class VideoDeleteView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -176,7 +251,8 @@ class VideoDeleteView(APIView):
             if video.file_id:
                 try:
                     DriveService().delete_file(video.file_id)
-                except: pass
+                except Exception as e:
+                    logger.warning(f"Failed to delete Drive file {video.file_id}: {e}")
             video.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
         except Video.DoesNotExist:

@@ -21,6 +21,7 @@ class Video(models.Model):
     file_size = models.BigIntegerField(null=True, blank=True)
     mime_type = models.CharField(max_length=100, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    progress = models.IntegerField(default=0, help_text="Processing progress percentage 0-100")
     error_message = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

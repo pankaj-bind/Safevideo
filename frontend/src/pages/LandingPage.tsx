@@ -2,7 +2,7 @@
  * LandingPage Component
  * Minimalist login portal - personal learning platform aesthetic
  */
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Play, ArrowRight } from 'lucide-react';
@@ -10,15 +10,6 @@ import { Play, ArrowRight } from 'lucide-react';
 const LandingPage: React.FC = () => {
   const navigate = useNavigate();
   const { isAuthenticated, isLoading } = useAuth();
-  const [theme] = useState<'light' | 'dark'>(() => {
-    const stored = localStorage.getItem('sv-theme');
-    return stored === 'dark' ? 'dark' : 'light';
-  });
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('sv-theme', theme);
-  }, [theme]);
 
   // Redirect to home if already authenticated
   useEffect(() => {

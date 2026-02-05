@@ -1,3 +1,4 @@
+from django.db.models import Count
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -17,7 +18,13 @@ class CategoryViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
-        return Category.objects.filter(user=self.request.user).prefetch_related('organizations')
+        from django.db.models import Prefetch
+        return Category.objects.filter(user=self.request.user).prefetch_related(
+            Prefetch(
+                'organizations',
+                queryset=Organization.objects.annotate(video_count=Count('videos'))
+            )
+        )
     
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -43,7 +50,9 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     parser_classes = [MultiPartParser, FormParser]
     
     def get_queryset(self):
-        return Organization.objects.filter(category__user=self.request.user)
+        return Organization.objects.filter(
+            category__user=self.request.user
+        ).annotate(video_count=Count('videos'))
     
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:

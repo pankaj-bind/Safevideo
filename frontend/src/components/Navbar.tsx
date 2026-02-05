@@ -3,9 +3,9 @@
  * Minimal, professional navigation bar - blends with dark graphite theme
  */
 import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Sun, Moon, LogOut, LogIn } from 'lucide-react';
+import { Sun, Moon, LogOut, LogIn, Calendar, LayoutDashboard } from 'lucide-react';
 
 // Minimal Play Logo - Clean geometric design
 const PlayLogo: React.FC<{ className?: string }> = ({ className }) => (
@@ -32,6 +32,7 @@ interface NavbarProps {
 const Navbar: React.FC<NavbarProps> = ({ theme, onThemeToggle }) => {
   const { isAuthenticated, user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleLogout = async () => {
     await logout();
@@ -41,14 +42,30 @@ const Navbar: React.FC<NavbarProps> = ({ theme, onThemeToggle }) => {
     navigate('/login');
   };
 
+  const isActive = (path: string) => location.pathname === path;
+
   return (
     <header className="navbar">
       <div className="navbar__container">
         {/* Brand */}
-        <Link to="/" className="navbar__brand">
+        <Link to={isAuthenticated ? '/home' : '/'} className="navbar__brand">
           <PlayLogo className="navbar__logo" />
           <span className="navbar__title">SafeVideo</span>
         </Link>
+
+        {/* Nav links for authenticated users */}
+        {isAuthenticated && (
+          <nav className="navbar__nav">
+            <Link to="/home" className={`navbar__link${isActive('/home') ? ' navbar__link--active' : ''}`}>
+              <LayoutDashboard size={16} />
+              <span>Home</span>
+            </Link>
+            <Link to="/schedule" className={`navbar__link${isActive('/schedule') ? ' navbar__link--active' : ''}`}>
+              <Calendar size={16} />
+              <span>Schedule</span>
+            </Link>
+          </nav>
+        )}
 
         {/* Actions */}
         <div className="navbar__actions">

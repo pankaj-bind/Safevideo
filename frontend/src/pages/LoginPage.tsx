@@ -25,7 +25,7 @@ const LoginPage: React.FC = () => {
   const location = useLocation();
 
   // Get redirect path from location state
-  const from = (location.state as LocationState)?.from?.pathname || '/dashboard';
+  const from = (location.state as LocationState)?.from?.pathname || '/home';
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
     const { name, value } = e.target;

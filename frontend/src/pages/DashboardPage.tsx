@@ -1,8 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../api/axiosInstance';
 import { API_ENDPOINTS } from '../config/api.config';
 import Navbar from '../components/Navbar';
+import { useTheme } from '../hooks/useTheme';
+import { useToast } from '../context/ToastContext';
+import type { Video } from '../types/models';
 import { ChevronLeft, ChevronRight, Play, RefreshCw, Trash2, Upload } from 'lucide-react';
 
 // =============================================================================
@@ -62,21 +65,6 @@ const Pagination: React.FC<{
   );
 };
 
-// =============================================================================
-// TYPES
-// =============================================================================
-type VideoStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELED';
-
-type Video = {
-  id: number;
-  title: string;
-  status: VideoStatus;
-  created_at: string;
-  file_id?: string | null;
-  folder_path?: string | null;
-  error_message?: string | null;
-};
-
 const VIDEOS_PER_PAGE = 25;
 
 const getCategoryLabel = (folderPath?: string | null) => {
@@ -96,10 +84,8 @@ const formatUploadedAt = (iso: string) => {
 // =============================================================================
 const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const stored = localStorage.getItem('sv-theme');
-    return stored === 'dark' ? 'dark' : 'light';
-  });
+  const { theme, toggleTheme } = useTheme();
+  const { addToast } = useToast();
   const [allVideos, setAllVideos] = useState<Video[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
@@ -108,10 +94,7 @@ const DashboardPage: React.FC = () => {
   const [isTabVisible, setIsTabVisible] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('sv-theme', theme);
-  }, [theme]);
+  // (theme handled by useTheme hook)
 
   // Pagination calculations
   const totalPages = Math.ceil(allVideos.length / VIDEOS_PER_PAGE);
@@ -214,7 +197,7 @@ const DashboardPage: React.FC = () => {
       console.error('Delete failed:', error);
       // Rollback on error - refetch to restore state
       await fetchVideos();
-      alert('Failed to delete video. Please try again.');
+      addToast('Failed to delete video. Please try again.', 'error');
     }
   };
 
@@ -223,20 +206,14 @@ const DashboardPage: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleThemeToggle = () => {
-    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
-  };
-
   const handleOpen = (video: Video) => {
     if (video.status !== 'COMPLETED' || !video.file_id) return;
     navigate(`/watch/${video.id}`);
   };
 
-  const durationLabel = useMemo(() => '—', []);
-
   return (
     <div className="sv-dashboard">
-      <Navbar theme={theme} onThemeToggle={handleThemeToggle} />
+      <Navbar theme={theme} onThemeToggle={toggleTheme} />
 
       <main className="sv-shell sv-main">
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 16 }}>
@@ -325,7 +302,7 @@ const DashboardPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="sv-cell-muted">{getCategoryLabel(v.folder_path)}</td>
-                      <td className="sv-cell-muted">{durationLabel}</td>
+                      <td className="sv-cell-muted">—</td>
                       <td className="sv-cell-muted" title={v.created_at}>
                         {formatUploadedAt(v.created_at)}
                       </td>
@@ -338,9 +315,9 @@ const DashboardPage: React.FC = () => {
                               handleOpen(v);
                             }}
                             disabled={!canOpen}
-                            title={canOpen ? 'Open' : 'Not ready'}
+                            title={canOpen ? 'Watch' : 'Not ready'}
                           >
-                            Edit
+                            Watch
                           </button>
                           <button
                             className="sv-action sv-action--danger"

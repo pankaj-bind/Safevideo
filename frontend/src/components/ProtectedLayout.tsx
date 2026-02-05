@@ -33,8 +33,7 @@ const ProtectedLayout: React.FC<ProtectedLayoutProps> = ({ children }) => {
 
   return (
     <div className="protected-layout">
-      {/* Main Content */}
-      <main className="protected-main">
+      <main id="main-content" className="protected-main">
         {children}
       </main>
 

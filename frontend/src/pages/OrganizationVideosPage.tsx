@@ -5,6 +5,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
+import { useTheme } from '../hooks/useTheme';
+import { slugify } from '../utils/slugify';
 import axiosInstance from '../api/axiosInstance';
 import { API_ENDPOINTS } from '../config/api.config';
 import { 
@@ -31,6 +33,7 @@ interface Video {
   id: number;
   title: string;
   status: VideoStatus;
+  progress?: number;
   error_message?: string | null;
   created_at: string;
   file_id?: string | null;
@@ -59,7 +62,9 @@ const UploadModal: React.FC<{
   onUpload: (file: File) => void;
   isUploading: boolean;
   uploadError: string | null;
-}> = ({ isOpen, onClose, onUpload, isUploading, uploadError }) => {
+  uploadProgress: number;
+  uploadPhase: string;
+}> = ({ isOpen, onClose, onUpload, isUploading, uploadError, uploadProgress, uploadPhase }) => {
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -132,9 +137,28 @@ const UploadModal: React.FC<{
             
             {isUploading ? (
               <div className="yt-upload-content">
-                <Loader2 size={48} className="spin-animation" />
-                <p className="yt-upload-text">Uploading your video...</p>
-                <p className="yt-upload-hint">Please wait, this may take a while</p>
+                <div className="upload-progress-ring">
+                  <svg viewBox="0 0 100 100" width="80" height="80">
+                    <circle cx="50" cy="50" r="42" fill="none" stroke="var(--border-color)" strokeWidth="6" />
+                    <circle
+                      cx="50" cy="50" r="42" fill="none"
+                      stroke="var(--primary-color)" strokeWidth="6"
+                      strokeLinecap="round"
+                      strokeDasharray={`${2 * Math.PI * 42}`}
+                      strokeDashoffset={`${2 * Math.PI * 42 * (1 - uploadProgress / 100)}`}
+                      transform="rotate(-90 50 50)"
+                      style={{ transition: 'stroke-dashoffset 0.3s ease' }}
+                    />
+                  </svg>
+                  <span className="upload-progress-pct">{Math.round(uploadProgress)}%</span>
+                </div>
+                <p className="yt-upload-text">{uploadPhase}</p>
+                <div className="upload-progress-bar-wrapper">
+                  <div className="upload-progress-bar">
+                    <div className="upload-progress-fill" style={{ width: `${uploadProgress}%` }} />
+                  </div>
+                </div>
+                <p className="yt-upload-hint">Please don't close this window</p>
               </div>
             ) : (
               <div className="yt-upload-content">
@@ -187,7 +211,7 @@ const VideoCard: React.FC<{
 
   const handleCardClick = () => {
     if (video.status === 'COMPLETED' && video.file_id) {
-      const videoSlug = video.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const videoSlug = slugify(video.title);
       navigate(`/${categorySlug}/${organizationSlug}/${videoSlug}`, { state: { videoId: video.id } });
     }
   };
@@ -210,7 +234,16 @@ const VideoCard: React.FC<{
           </>
         ) : (
           <div className="video-card-status-overlay">
-            <statusConfig.icon size={32} className={statusConfig.color} />
+            <statusConfig.icon size={32} className={`${statusConfig.color}${video.status === 'PROCESSING' ? ' spin-animation' : ''}`} />
+            {(video.status === 'PROCESSING' || video.status === 'PENDING') && typeof video.progress === 'number' && video.progress > 0 && (
+              <span className="video-card-progress-label">{video.progress}%</span>
+            )}
+          </div>
+        )}
+        {/* Progress bar at bottom of thumbnail */}
+        {(video.status === 'PROCESSING' || video.status === 'PENDING') && typeof video.progress === 'number' && video.progress > 0 && (
+          <div className="video-card-progress">
+            <div className="video-card-progress-fill" style={{ width: `${video.progress}%` }} />
           </div>
         )}
       </div>
@@ -220,7 +253,7 @@ const VideoCard: React.FC<{
         <div className="video-card-meta">
           <span className={`video-card-badge ${statusConfig.bg}`}>
             <statusConfig.icon size={12} className={statusConfig.color} />
-            {statusConfig.text}
+            {statusConfig.text}{(video.status === 'PROCESSING' || video.status === 'PENDING') && typeof video.progress === 'number' && video.progress > 0 ? ` ${video.progress}%` : ''}
           </span>
           <span className="video-card-date">
             {formatDistanceToNow(new Date(video.created_at), { addSuffix: true })}
@@ -248,10 +281,7 @@ const VideoCard: React.FC<{
 const OrganizationVideosPage: React.FC = () => {
   const { categorySlug, organizationSlug } = useParams<{ categorySlug: string; organizationSlug: string }>();
   const navigate = useNavigate();
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const saved = localStorage.getItem('sv-theme');
-    return (saved === 'light' || saved === 'dark') ? saved : 'dark';
-  });
+  const { theme, toggleTheme } = useTheme();
 
   const [organization, setOrganization] = useState<Organization>({ id: 0, name: '', credential_count: 0 });
   const [category, setCategory] = useState<Category>({ id: 0, name: '' });
@@ -259,25 +289,20 @@ const OrganizationVideosPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadPhase, setUploadPhase] = useState('Preparing upload…');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
-
-  const handleThemeToggle = () => {
-    setTheme(prev => prev === 'light' ? 'dark' : 'light');
-  };
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('sv-theme', theme);
-  }, [theme]);
 
   useEffect(() => {
     fetchData();
   }, [categorySlug, organizationSlug]);
 
   useEffect(() => {
-    const interval = setInterval(fetchVideos, 5000);
+    const interval = setInterval(() => {
+      if (!document.hidden) fetchVideos();
+    }, 5000);
     return () => clearInterval(interval);
   }, [organization.id]);
 
@@ -291,11 +316,11 @@ const OrganizationVideosPage: React.FC = () => {
       ]);
 
       const foundCategory = categoriesResponse.data.find(
-        (cat: any) => (cat.slug || cat.name.toLowerCase().replace(/\s+/g, '-')) === categorySlug
+        (cat: any) => (cat.slug || slugify(cat.name)) === categorySlug
       );
       
       const foundOrganization = organizationsResponse.data.find(
-        (org: any) => (org.slug || org.name.toLowerCase().replace(/\s+/g, '-')) === organizationSlug
+        (org: any) => (org.slug || slugify(org.name)) === organizationSlug
       );
 
       if (!foundCategory || !foundOrganization) {
@@ -329,6 +354,8 @@ const OrganizationVideosPage: React.FC = () => {
   const handleUpload = async (file: File) => {
     setIsUploading(true);
     setUploadError(null);
+    setUploadProgress(0);
+    setUploadPhase('Preparing upload…');
 
     const CHUNK_SIZE = 5 * 1024 * 1024;
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
@@ -349,10 +376,23 @@ const OrganizationVideosPage: React.FC = () => {
         formData.append('organization', organization.id.toString());
         formData.append('category', category.id.toString());
 
+        const chunkWeight = 1 / totalChunks;
+
         await axiosInstance.post(API_ENDPOINTS.VIDEOS.UPLOAD, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
+          onUploadProgress: (progressEvent) => {
+            if (progressEvent.total) {
+              const chunkPct = (progressEvent.loaded / progressEvent.total) * chunkWeight;
+              const overallPct = ((chunkIndex / totalChunks) + chunkPct) * 95; // 95% = upload, 5% = finalize
+              setUploadProgress(Math.min(overallPct, 95));
+              setUploadPhase(`Uploading chunk ${chunkIndex + 1} of ${totalChunks}…`);
+            }
+          },
         });
       }
+
+      setUploadPhase('Finalizing upload…');
+      setUploadProgress(97);
 
       await axiosInstance.post(API_ENDPOINTS.VIDEOS.COMPLETE, {
         upload_id: uploadId,
@@ -361,6 +401,12 @@ const OrganizationVideosPage: React.FC = () => {
         organization: organization.id,
         category: category.id
       });
+
+      setUploadProgress(100);
+      setUploadPhase('Upload complete!');
+
+      // Brief pause so the user sees 100%
+      await new Promise((r) => setTimeout(r, 600));
 
       setShowUploadModal(false);
       await fetchVideos();
@@ -386,8 +432,8 @@ const OrganizationVideosPage: React.FC = () => {
 
   const handleDelete = async (videoId: number) => {
     try {
-      await axiosInstance.delete(`${API_ENDPOINTS.VIDEOS.LIST}${videoId}/`);
-      await fetchVideos();
+      await axiosInstance.delete(API_ENDPOINTS.VIDEOS.DELETE(videoId));
+      setVideos((prev) => prev.filter((v) => v.id !== videoId));
     } catch (error) {
       console.error('Failed to delete video:', error);
     }
@@ -422,7 +468,7 @@ const OrganizationVideosPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="yt-page">
-        <Navbar theme={theme} onThemeToggle={handleThemeToggle} />
+        <Navbar theme={theme} onThemeToggle={toggleTheme} />
         <div className="org-videos-loading">
           <Loader2 size={48} className="spin-animation" />
           <p>Loading videos...</p>
@@ -433,7 +479,7 @@ const OrganizationVideosPage: React.FC = () => {
 
   return (
     <div className="yt-page">
-      <Navbar theme={theme} onThemeToggle={handleThemeToggle} />
+      <Navbar theme={theme} onThemeToggle={toggleTheme} />
 
       <main className="org-videos-main">
         {/* Header */}
@@ -512,6 +558,8 @@ const OrganizationVideosPage: React.FC = () => {
         onUpload={handleUpload}
         isUploading={isUploading}
         uploadError={uploadError}
+        uploadProgress={uploadProgress}
+        uploadPhase={uploadPhase}
       />
     </div>
   );

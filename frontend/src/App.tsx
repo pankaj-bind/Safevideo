@@ -5,79 +5,50 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { ToastProvider } from './context/ToastContext';
 import ProtectedLayout from './components/ProtectedLayout';
-import LandingPage from './pages/LandingPage';
-import LoginPage from './pages/LoginPage';
-import SignupPage from './pages/SignupPage';
-import HomePage from './pages/HomePage';
-import DashboardPage from './pages/DashboardPage';
-import OrganizationVideosPage from './pages/OrganizationVideosPage';
-import OrganizationDetailPage from './pages/OrganizationDetailPage';
-import WatchPage from './pages/WatchPage';
+
+const LandingPage = React.lazy(() => import('./pages/LandingPage'));
+const LoginPage = React.lazy(() => import('./pages/LoginPage'));
+const SignupPage = React.lazy(() => import('./pages/SignupPage'));
+const HomePage = React.lazy(() => import('./pages/HomePage'));
+const DashboardPage = React.lazy(() => import('./pages/DashboardPage'));
+const OrganizationVideosPage = React.lazy(() => import('./pages/OrganizationVideosPage'));
+const OrganizationDetailPage = React.lazy(() => import('./pages/OrganizationDetailPage'));
+const WatchPage = React.lazy(() => import('./pages/WatchPage'));
+const SchedulePage = React.lazy(() => import('./pages/SchedulePage'));
 
 const App: React.FC = () => {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          {/* Landing Page */}
-          <Route path="/" element={<LandingPage />} />
+    <ToastProvider>
+      <BrowserRouter>
+        <a href="#main-content" className="skip-to-content">Skip to content</a>
+        <AuthProvider>
+          <React.Suspense fallback={
+            <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-canvas)' }}>
+              <div className="landing-loader" />
+            </div>
+          }>
+            <Routes>
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/signup" element={<SignupPage />} />
 
-          {/* Public Routes */}
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/signup" element={<SignupPage />} />
+              <Route path="/home" element={<ProtectedLayout><HomePage /></ProtectedLayout>} />
+              <Route path="/schedule" element={<ProtectedLayout><SchedulePage /></ProtectedLayout>} />
+              <Route path="/videos" element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />
+              <Route path="/watch/:videoId" element={<ProtectedLayout><WatchPage /></ProtectedLayout>} />
+              <Route path="/:categorySlug/:organizationSlug" element={<ProtectedLayout><OrganizationVideosPage /></ProtectedLayout>} />
+              <Route path="/:categorySlug/:organizationSlug/:videoSlug" element={<ProtectedLayout><OrganizationDetailPage /></ProtectedLayout>} />
 
-          {/* Protected Routes */}
-          <Route
-            path="/home"
-            element={
-              <ProtectedLayout>
-                <HomePage />
-              </ProtectedLayout>
-            }
-          />
-          <Route
-            path="/videos"
-            element={
-              <ProtectedLayout>
-                <DashboardPage />
-              </ProtectedLayout>
-            }
-          />
-          <Route
-            path="/watch/:videoId"
-            element={
-              <ProtectedLayout>
-                <WatchPage />
-              </ProtectedLayout>
-            }
-          />
-          <Route
-            path="/:categorySlug/:organizationSlug"
-            element={
-              <ProtectedLayout>
-                <OrganizationVideosPage />
-              </ProtectedLayout>
-            }
-          />
-          <Route
-            path="/:categorySlug/:organizationSlug/:videoSlug"
-            element={
-              <ProtectedLayout>
-                <OrganizationDetailPage />
-              </ProtectedLayout>
-            }
-          />
-          
-          {/* Backward compatibility - redirect old routes to home */}
-          <Route path="/category/:categoryId/organization/:organizationId" element={<Navigate to="/home" replace />} />
-          <Route path="/dashboard" element={<Navigate to="/home" replace />} />
-          
-          {/* 404 Fallback */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </AuthProvider>
-    </BrowserRouter>
+              <Route path="/category/:categoryId/organization/:organizationId" element={<Navigate to="/home" replace />} />
+              <Route path="/dashboard" element={<Navigate to="/home" replace />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </React.Suspense>
+        </AuthProvider>
+      </BrowserRouter>
+    </ToastProvider>
   );
 };
 

@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import Navbar from '../components/Navbar';
+import { useTheme } from '../hooks/useTheme';
 import axiosInstance from '../api/axiosInstance';
 import { API_ENDPOINTS, API_CONFIG } from '../config/api.config';
 import { 
@@ -29,6 +30,7 @@ import {
   Send
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { slugify } from '../utils/slugify';
 
 // =============================================================================
 // TYPES
@@ -185,7 +187,7 @@ const NotesSection: React.FC<{
           placeholder="Write your note here..."
           value={noteContent}
           onChange={(e) => setNoteContent(e.target.value)}
-          onKeyPress={handleKeyPress}
+          onKeyDown={handleKeyPress}
           rows={3}
         />
         <div className="notes-actions">
@@ -267,7 +269,7 @@ const VideoPlayer: React.FC<{
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showControls, setShowControls] = useState(true);
-  const [playbackRate, setPlaybackRate] = useState(0.5);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -304,8 +306,8 @@ const VideoPlayer: React.FC<{
   const handleLoadedMetadata = () => {
     if (videoRef.current) {
       setDuration(videoRef.current.duration);
-      // Set initial playback rate
-      videoRef.current.playbackRate = 0.75;
+      // Sync initial playback rate with state
+      videoRef.current.playbackRate = playbackRate;
     }
   };
 
@@ -747,10 +749,7 @@ const OrganizationDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const videoIdFromState = location.state?.videoId;
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const stored = localStorage.getItem('sv-theme');
-    return stored === 'dark' ? 'dark' : 'light';
-  });
+  const { theme, toggleTheme } = useTheme();
 
   const [organization, setOrganization] = useState<Organization>({ id: 0, name: '', credential_count: 0 });
   const [category, setCategory] = useState<Category>({ id: 0, name: '' });
@@ -763,11 +762,6 @@ const OrganizationDetailPage: React.FC = () => {
   const [isTheaterMode, setIsTheaterMode] = useState(false);
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
   const [seekToTime, setSeekToTime] = useState<number | undefined>(undefined);
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('sv-theme', theme);
-  }, [theme]);
 
   useEffect(() => {
     fetchData();
@@ -921,15 +915,14 @@ const OrganizationDetailPage: React.FC = () => {
 
   const handleSelectVideo = (video: Video) => {
     if (video.status === 'COMPLETED' && video.file_id) {
-      const videoSlug = video.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      const videoSlug = slugify(video.title);
       navigate(`/${categorySlug}/${organizationSlug}/${videoSlug}`, { state: { videoId: video.id } });
     }
   };
 
   const handleJumpToTimestamp = (time: number) => {
-    setSeekToTime(time);
-    // Reset after a short delay to allow multiple seeks to the same time
-    setTimeout(() => setSeekToTime(undefined), 100);
+    // Use a unique value to allow repeated seeks to the same time
+    setSeekToTime(time + Math.random() * 0.001);
   };
 
   const handleNextVideo = () => {
@@ -960,14 +953,10 @@ const OrganizationDetailPage: React.FC = () => {
     return videos.slice(0, currentIndex).some(v => v.status === 'COMPLETED' && v.file_id);
   };
 
-  const handleThemeToggle = () => {
-    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
-  };
-
   if (isLoading) {
     return (
       <div className="yt-page">
-        <Navbar theme={theme} onThemeToggle={handleThemeToggle} />
+        <Navbar theme={theme} onThemeToggle={toggleTheme} />
         <div className="yt-loading">
           <Loader2 size={48} className="spin-animation" />
           <p>Loading...</p>
@@ -979,7 +968,7 @@ const OrganizationDetailPage: React.FC = () => {
   if (!organization || !category) {
     return (
       <div className="yt-page">
-        <Navbar theme={theme} onThemeToggle={handleThemeToggle} />
+        <Navbar theme={theme} onThemeToggle={toggleTheme} />
         <div className="yt-error">
           <AlertCircle size={48} />
           <h3>Organization not found</h3>
@@ -994,7 +983,7 @@ const OrganizationDetailPage: React.FC = () => {
 
   return (
     <div className="yt-page">
-      <Navbar theme={theme} onThemeToggle={handleThemeToggle} />
+      <Navbar theme={theme} onThemeToggle={toggleTheme} />
 
       <main className={`yt-main ${isTheaterMode ? 'yt-main--theater' : ''}`}>
         {/* Video Player and Content Section */}

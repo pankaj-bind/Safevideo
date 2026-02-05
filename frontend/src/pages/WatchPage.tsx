@@ -3,17 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import axiosInstance from '../api/axiosInstance';
 import { API_ENDPOINTS, API_CONFIG } from '../config/api.config';
 import VideoPlayerLayout from '../components/VideoPlayerLayout';
-
-type VideoStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELED';
-
-type Video = {
-  id: number;
-  title: string;
-  status: VideoStatus;
-  created_at: string;
-  file_id?: string | null;
-  folder_path?: string | null;
-};
+import type { Video } from '../types/models';
 
 const WatchPage: React.FC = () => {
   const navigate = useNavigate();
@@ -36,11 +26,12 @@ const WatchPage: React.FC = () => {
     const run = async () => {
       try {
         setIsLoading(true);
-        const response = await axiosInstance.get<Video[]>(API_ENDPOINTS.VIDEOS.LIST);
-        const found = response.data.find((v) => v.id === parsedId) ?? null;
-        if (!cancelled) setVideo(found);
-      } catch (e) {
-        if (!cancelled) setError('Failed to load video');
+        const response = await axiosInstance.get<Video>(API_ENDPOINTS.VIDEOS.DETAIL(parsedId));
+        if (!cancelled) setVideo(response.data);
+      } catch (e: any) {
+        if (!cancelled) {
+          setError(e.response?.status === 404 ? 'Video not found' : 'Failed to load video');
+        }
       } finally {
         if (!cancelled) setIsLoading(false);
       }

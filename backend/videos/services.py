@@ -76,13 +76,14 @@ class DriveService:
         
         self.service = build('drive', 'v3', credentials=self.creds)
 
-    def upload_file(self, file_path, title, folder_path=None):
+    def upload_file(self, file_path, title, folder_path=None, progress_callback=None):
         """Upload file to Google Drive with optimized 10MB chunks for faster upload.
         
         Args:
             file_path: Path to the local file
             title: Name for the file in Drive
             folder_path: Optional category/organization path (e.g., "Work/ProjectA")
+            progress_callback: Optional callable(float) receiving 0.0-1.0 progress
         
         Performance Notes:
         - 10MB chunks reduce HTTP overhead significantly vs default 256KB
@@ -130,13 +131,23 @@ class DriveService:
             chunksize=10 * 1024 * 1024  # 10MB chunks
         )
         
-        file = self.service.files().create(
+        request = self.service.files().create(
             body=file_metadata,
             media_body=media,
             fields='id'
-        ).execute()
+        )
         
-        return file.get('id')
+        # Use resumable upload with progress callback
+        response = None
+        while response is None:
+            upload_status, response = request.next_chunk()
+            if upload_status and progress_callback:
+                progress_callback(upload_status.progress())
+        
+        if progress_callback:
+            progress_callback(1.0)
+        
+        return response.get('id')
 
     def get_file_stream(self, file_id):
         """Legacy method - kept for backward compatibility. Loads entire file into memory."""
@@ -296,12 +307,22 @@ class VideoProcessor:
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return process
 
+def _update_progress(video_id, progress):
+    """Safely update video progress from background thread."""
+    try:
+        close_old_connections()
+        Video.objects.filter(id=video_id).update(progress=min(progress, 100))
+    except Exception:
+        pass  # Non-critical — don't crash processing over a progress update
+
+
 def process_video_background(video_id, temp_file_path, original_filename, folder_path=None):
     close_old_connections()
     
     try:
         video = Video.objects.get(id=video_id)
         video.status = 'PROCESSING'
+        video.progress = 5
         video.save()
 
         with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as output_temp:
@@ -313,11 +334,15 @@ def process_video_background(video_id, temp_file_path, original_filename, folder
 
         register_processing(video_id, process, temp_file_path, output_path, cancel_event)
 
+        # FFmpeg phase: 5% → 40%
+        _update_progress(video_id, 10)
         stdout, stderr = process.communicate()
+        _update_progress(video_id, 40)
 
         if cancel_event.is_set():
             Video.objects.filter(id=video_id).update(
                 status='CANCELED',
+                progress=0,
                 error_message='Processing canceled by user.'
             )
             return
@@ -326,11 +351,21 @@ def process_video_background(video_id, temp_file_path, original_filename, folder
             error_log = stderr.decode('utf-8')
             raise Exception(f"FFmpeg failed: {error_log}")
 
-        drive_service = DriveService()
-        file_id = drive_service.upload_file(output_path, f"Processed_{original_filename}", folder_path)
+        # Drive upload phase: 40% → 95%
+        def on_drive_progress(frac):
+            pct = 40 + int(frac * 55)  # 40-95%
+            _update_progress(video_id, pct)
 
+        drive_service = DriveService()
+        file_id = drive_service.upload_file(
+            output_path, f"Processed_{original_filename}", folder_path,
+            progress_callback=on_drive_progress
+        )
+
+        video = Video.objects.get(id=video_id)
         video.file_id = file_id
         video.status = 'COMPLETED'
+        video.progress = 100
         video.save()
 
         # Cleanup

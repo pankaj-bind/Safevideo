@@ -53,7 +53,7 @@ const SignupPage: React.FC = () => {
 
     try {
       await signup(formData);
-      navigate('/dashboard', { replace: true });
+      navigate('/home', { replace: true });
     } catch (err) {
       const axiosError = err as AxiosError<{ error?: { message: string } }>;
       setError(
