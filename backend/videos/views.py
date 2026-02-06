@@ -14,6 +14,26 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def _build_video_dict(video, request):
+    """Build a serializable dict for a Video instance with media URLs."""
+    data = {
+        'id': video.id,
+        'title': video.title,
+        'status': video.status,
+        'progress': video.progress,
+        'error_message': video.error_message,
+        'created_at': video.created_at,
+        'file_id': video.file_id,
+        'folder_path': video.folder_path,
+        'file_size': video.file_size,
+        'mime_type': video.mime_type,
+        'duration': video.duration,
+        'thumbnail_url': request.build_absolute_uri(video.thumbnail.url) if video.thumbnail else None,
+        'preview_url': request.build_absolute_uri(video.preview.url) if video.preview else None,
+    }
+    return data
+
 class ChunkedUploadView(APIView):
     """
     Handle chunked video uploads for large files.
@@ -179,10 +199,7 @@ class VideoListView(generics.ListAPIView):
                 page_size = min(int(page_size), 100)  # Cap at 100
                 offset = (page - 1) * page_size
                 total = queryset.count()
-                videos = list(queryset.values(
-                    'id', 'title', 'status', 'progress', 'error_message', 'created_at',
-                    'file_id', 'folder_path', 'file_size', 'mime_type'
-                )[offset:offset + page_size])
+                videos = [_build_video_dict(v, request) for v in queryset[offset:offset + page_size]]
                 return Response({
                     'results': videos,
                     'total': total,
@@ -193,11 +210,8 @@ class VideoListView(generics.ListAPIView):
                 pass
         
         # Default: return all (backward compatible)
-        videos = queryset.values(
-            'id', 'title', 'status', 'progress', 'error_message', 'created_at',
-            'file_id', 'folder_path', 'file_size', 'mime_type'
-        )
-        return Response(list(videos))
+        videos = [_build_video_dict(v, request) for v in queryset]
+        return Response(videos)
 
 class VideoDetailView(APIView):
     """Get a single video by ID"""
@@ -206,17 +220,7 @@ class VideoDetailView(APIView):
     def get(self, request, pk):
         try:
             video = Video.objects.get(id=pk, user=request.user)
-            return Response({
-                'id': video.id,
-                'title': video.title,
-                'status': video.status,
-                'error_message': video.error_message,
-                'created_at': video.created_at,
-                'file_id': video.file_id,
-                'folder_path': video.folder_path,
-                'file_size': video.file_size,
-                'mime_type': video.mime_type,
-            })
+            return Response(_build_video_dict(video, request))
         except Video.DoesNotExist:
             return Response({'error': 'Video not found'}, status=status.HTTP_404_NOT_FOUND)
 

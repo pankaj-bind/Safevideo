@@ -27,10 +27,11 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const id = Date.now().toString() + Math.random().toString(36).slice(2);
     setToasts((prev) => [...prev, { id, message, type }]);
 
-    // Auto-dismiss after 4s
+    // Event notifications stay longer (10s), others dismiss after 4s
+    const duration = type === 'warning' ? 10000 : 4000;
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4000);
+    }, duration);
   }, []);
 
   const removeToast = useCallback((id: string) => {

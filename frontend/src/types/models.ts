@@ -14,6 +14,9 @@ export interface Video {
   folder_path?: string | null;
   file_size?: number | null;
   mime_type?: string | null;
+  duration?: number | null;
+  thumbnail_url?: string | null;
+  preview_url?: string | null;
 }
 
 export interface Category {

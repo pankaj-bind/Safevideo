@@ -23,7 +23,6 @@ import {
   BellOff,
   Copy,
   ArrowLeft,
-  GripVertical,
 } from 'lucide-react';
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -149,8 +148,12 @@ const SchedulePage: React.FC = () => {
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => typeof Notification !== 'undefined' && Notification.permission === 'granted');
   const notifiedRef = useRef<Set<string>>(new Set());
 
+  // ── In-app popup notification state ──
+  const [eventPopup, setEventPopup] = useState<{ show: boolean; item: ScheduleItem | null }>({ show: false, item: null });
+  const popupNotifiedRef = useRef<Set<string>>(new Set());
+
   // ── Load schedule when date changes ──
-  useEffect(() => { setSchedule(loadSchedule(dateKey)); notifiedRef.current = new Set(); }, [dateKey]);
+  useEffect(() => { setSchedule(loadSchedule(dateKey)); notifiedRef.current = new Set(); popupNotifiedRef.current = new Set(); }, [dateKey]);
 
   // ── Auto-update status for today ──
   useEffect(() => {
@@ -178,27 +181,58 @@ const SchedulePage: React.FC = () => {
     return () => clearInterval(id);
   }, [dateKey, selectedDate]);
 
-  // ── Browser notifications 2 min before ──
+  // ── In-app popup notification — fires at event time, NO browser permission needed ──
   useEffect(() => {
-    if (!notificationsEnabled || !isToday(selectedDate)) return;
+    if (!isToday(selectedDate)) return;
     const check = () => {
       const now = new Date();
       const nowSecs = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+
       schedule.forEach((item) => {
-        if (item.status === 'completed') return;
-        const eventSecs = timeToMinutes(item.time) * 60; // convert min → sec
+        const eventMins = timeToMinutes(item.time);
+        const eventSecs = eventMins * 60;
         const diffSecs = eventSecs - nowSecs;
-        // Fire when event is within 2 minutes (120s) and hasn't started yet
-        if (diffSecs > 0 && diffSecs <= 120 && !notifiedRef.current.has(item.id)) {
-          notifiedRef.current.add(item.id);
+
+        // ── 2-minute warning toast ──
+        const warnKey = `${item.id}-warn`;
+        if (diffSecs > 0 && diffSecs <= 120 && !popupNotifiedRef.current.has(warnKey)) {
+          popupNotifiedRef.current.add(warnKey);
           const minsLeft = Math.ceil(diffSecs / 60);
-          new Notification('📅 SafeVideo Schedule', { body: `Starting in ${minsLeft} min: ${item.subject}`, icon: '/favicon.ico', tag: item.id });
-          addToast(`Starting in ${minsLeft} min: ${item.subject}`, 'info');
+          addToast(`⏰ Starting in ${minsLeft} min: ${item.subject}`, 'warning');
+          // Also fire browser notification if permission granted
+          if (notificationsEnabled) {
+            try { new Notification('📅 SafeVideo Schedule', { body: `Starting in ${minsLeft} min: ${item.subject}`, icon: '/favicon.ico' }); } catch {}
+          }
+        }
+
+        // ── Popup at event time (within 60 second window) ──
+        const startKey = `${item.id}-popup`;
+        if (Math.abs(diffSecs) <= 60 && !popupNotifiedRef.current.has(startKey)) {
+          popupNotifiedRef.current.add(startKey);
+          setEventPopup({ show: true, item });
+          addToast(`🔔 NOW: ${item.subject}`, 'warning');
+          // Play notification sound
+          try {
+            const ctx = new AudioContext();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.frequency.value = 880;
+            osc.type = 'sine';
+            gain.gain.value = 0.3;
+            osc.start();
+            setTimeout(() => { osc.stop(); ctx.close(); }, 300);
+          } catch {}
+          // Also fire browser notification if permission granted
+          if (notificationsEnabled) {
+            try { new Notification('🔔 Event Starting Now!', { body: item.subject, icon: '/favicon.ico', requireInteraction: true }); } catch {}
+          }
         }
       });
     };
     check();
-    const id = setInterval(check, 10_000); // Check every 10s for precision
+    const id = setInterval(check, 5_000); // Check every 5s
     return () => clearInterval(id);
   }, [schedule, notificationsEnabled, selectedDate, addToast]);
 
@@ -238,7 +272,7 @@ const SchedulePage: React.FC = () => {
     if (typeof Notification === 'undefined') { addToast('Notifications not supported', 'warning'); return; }
     const perm = await Notification.requestPermission();
     setNotificationsEnabled(perm === 'granted');
-    addToast(perm === 'granted' ? 'Notifications enabled! 2 min reminders active.' : 'Permission denied', perm === 'granted' ? 'success' : 'warning');
+    addToast(perm === 'granted' ? 'Notifications enabled! You\'ll get alerts 2 min before and at event start.' : 'Permission denied', perm === 'granted' ? 'success' : 'warning');
   };
 
   // ── Computed ──
@@ -373,6 +407,24 @@ const SchedulePage: React.FC = () => {
       </main>
 
       <ItemModal isOpen={modal.open} onClose={() => setModal({ open: false, item: null })} onSave={handleSave} initial={modal.item} title={modal.item ? 'Edit Event' : 'New Event'} />
+
+      {/* ── Event Popup Notification ── */}
+      {eventPopup.show && eventPopup.item && (
+        <div className="ev-popup-overlay">
+          <div className="ev-popup">
+            <div className="ev-popup-icon">
+              <Bell size={36} />
+            </div>
+            <h2 className="ev-popup-title">🔔 Event Starting Now!</h2>
+            <div className="ev-popup-time">{to12h(eventPopup.item.time)}{eventPopup.item.endTime && ` — ${to12h(eventPopup.item.endTime)}`}</div>
+            <h3 className="ev-popup-subject">{eventPopup.item.subject}</h3>
+            {eventPopup.item.description && <p className="ev-popup-desc">{eventPopup.item.description}</p>}
+            <button className="ev-popup-dismiss" onClick={() => setEventPopup({ show: false, item: null })}>
+              <CheckCircle size={18} /> Got it!
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

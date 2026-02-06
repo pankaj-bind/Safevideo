@@ -37,6 +37,9 @@ interface Video {
   error_message?: string | null;
   created_at: string;
   file_id?: string | null;
+  duration?: number | null;
+  thumbnail_url?: string | null;
+  preview_url?: string | null;
 }
 
 interface Organization {
@@ -186,6 +189,9 @@ const VideoCard: React.FC<{
   organizationSlug: string;
 }> = ({ video, onDelete, categorySlug, organizationSlug }) => {
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isHovering, setIsHovering] = useState(false);
+  const previewRef = React.useRef<HTMLVideoElement>(null);
+  const hoverTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigate = useNavigate();
 
   const getStatusConfig = (status: VideoStatus) => {
@@ -198,6 +204,41 @@ const VideoCard: React.FC<{
         return { icon: AlertCircle, text: 'Failed', color: 'text-red', bg: 'bg-red-light' };
       default:
         return { icon: Clock, text: 'Pending', color: 'text-yellow', bg: 'bg-yellow-light' };
+    }
+  };
+
+  const formatDuration = (seconds: number | null | undefined): string => {
+    if (!seconds || seconds <= 0) return '0:00';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const handleMouseEnter = () => {
+    if (!video.preview_url || video.status !== 'COMPLETED') return;
+    hoverTimerRef.current = setTimeout(() => {
+      setIsHovering(true);
+      // Small delay before playing to allow DOM update
+      setTimeout(() => {
+        if (previewRef.current) {
+          previewRef.current.currentTime = 0;
+          previewRef.current.play().catch(() => {});
+        }
+      }, 50);
+    }, 500); // 500ms delay before showing preview
+  };
+
+  const handleMouseLeave = () => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    setIsHovering(false);
+    if (previewRef.current) {
+      previewRef.current.pause();
+      previewRef.current.currentTime = 0;
     }
   };
 
@@ -223,14 +264,39 @@ const VideoCard: React.FC<{
     <div 
       className={`video-card ${canPlay ? 'video-card--playable' : ''} ${isDeleting ? 'video-card--deleting' : ''}`}
       onClick={handleCardClick}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       <div className="video-card-thumbnail">
+        {/* Thumbnail image */}
+        {video.thumbnail_url && (
+          <img
+            src={video.thumbnail_url}
+            alt={video.title}
+            className={`video-card-thumb-img ${isHovering ? 'video-card-thumb-img--hidden' : ''}`}
+          />
+        )}
+
+        {/* Preview video on hover */}
+        {video.preview_url && isHovering && (
+          <video
+            ref={previewRef}
+            src={video.preview_url}
+            className="video-card-preview-video"
+            muted
+            loop
+            playsInline
+          />
+        )}
+
         {canPlay ? (
           <>
-            <div className="video-card-play-overlay">
-              <Play size={48} />
-            </div>
-            <div className="video-card-duration">00:00</div>
+            {!isHovering && (
+              <div className="video-card-play-overlay">
+                <Play size={48} />
+              </div>
+            )}
+            <div className="video-card-duration">{formatDuration(video.duration)}</div>
           </>
         ) : (
           <div className="video-card-status-overlay">

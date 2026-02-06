@@ -262,6 +262,91 @@ class VideoProcessor:
             print(f"Error checking audio: {e}")
             return False
 
+    def get_duration(self):
+        """Get video duration in seconds using ffprobe."""
+        try:
+            cmd = [
+                'ffprobe',
+                '-v', 'error',
+                '-show_entries', 'format=duration',
+                '-of', 'csv=p=0',
+                self.input_path
+            ]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            duration_str = result.stdout.strip()
+            if duration_str:
+                return float(duration_str)
+        except Exception as e:
+            logger.warning(f"Error getting duration: {e}")
+        return None
+
+    def generate_thumbnail(self, output_thumbnail_path, timestamp=1):
+        """Extract a single frame as a JPEG thumbnail.
+        
+        Args:
+            output_thumbnail_path: Path to save the thumbnail image
+            timestamp: Seconds into the video to capture (default 1s)
+        """
+        try:
+            duration = self.get_duration()
+            # If video is shorter than the timestamp, capture at 0s
+            if duration and timestamp >= duration:
+                timestamp = 0
+
+            cmd = [
+                'ffmpeg', '-y',
+                '-ss', str(timestamp),
+                '-i', self.input_path,
+                '-vframes', '1',
+                '-vf', 'scale=640:-2',
+                '-q:v', '2',  # High quality JPEG
+                output_thumbnail_path
+            ]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+            if result.returncode == 0 and os.path.exists(output_thumbnail_path):
+                return True
+        except Exception as e:
+            logger.warning(f"Thumbnail generation failed: {e}")
+        return False
+
+    def generate_preview(self, output_preview_path, start=1, clip_duration=6):
+        """Generate a short muted preview clip for hover playback.
+        
+        Args:
+            output_preview_path: Path to save the preview video
+            start: Start time in seconds (default 1s)
+            clip_duration: Duration of the preview clip in seconds (default 6s)
+        """
+        try:
+            duration = self.get_duration()
+            # Adjust start/duration for short videos
+            if duration:
+                if start >= duration:
+                    start = 0
+                if start + clip_duration > duration:
+                    clip_duration = max(1, duration - start)
+
+            cmd = [
+                'ffmpeg', '-y',
+                '-ss', str(start),
+                '-i', self.input_path,
+                '-t', str(clip_duration),
+                '-vf', 'scale=480:-2',
+                '-an',  # No audio for preview
+                '-c:v', 'libx264',
+                '-preset', 'ultrafast',
+                '-crf', '28',
+                '-movflags', '+faststart',
+                '-pix_fmt', 'yuv420p',
+                output_preview_path
+            ]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+            if result.returncode == 0 and os.path.exists(output_preview_path):
+                return True
+        except Exception as e:
+            logger.warning(f"Preview generation failed: {e}")
+        return False
+
     def process_video(self):
         """Speed up video 2x with quality-preserving encoding settings.
         
@@ -319,6 +404,9 @@ def _update_progress(video_id, progress):
 def process_video_background(video_id, temp_file_path, original_filename, folder_path=None):
     close_old_connections()
     
+    thumbnail_path = None
+    preview_path = None
+    
     try:
         video = Video.objects.get(id=video_id)
         video.status = 'PROCESSING'
@@ -330,11 +418,33 @@ def process_video_background(video_id, temp_file_path, original_filename, folder
 
         processor = VideoProcessor(temp_file_path, output_path)
         cancel_event = threading.Event()
+        
+        # ── Get duration from the original file BEFORE processing ──
+        _update_progress(video_id, 7)
+        original_duration = processor.get_duration()
+        
+        # ── Generate thumbnail from original file (at 1 second) ──
+        _update_progress(video_id, 8)
+        thumbnail_dir = os.path.join(settings.MEDIA_ROOT, 'thumbnails')
+        os.makedirs(thumbnail_dir, exist_ok=True)
+        thumbnail_filename = f"thumb_{video_id}_{int(time.time())}.jpg"
+        thumbnail_path = os.path.join(thumbnail_dir, thumbnail_filename)
+        thumbnail_ok = processor.generate_thumbnail(thumbnail_path)
+        
+        # ── Generate preview clip from original file (6 second clip) ──
+        _update_progress(video_id, 9)
+        preview_dir = os.path.join(settings.MEDIA_ROOT, 'previews')
+        os.makedirs(preview_dir, exist_ok=True)
+        preview_filename = f"preview_{video_id}_{int(time.time())}.mp4"
+        preview_path = os.path.join(preview_dir, preview_filename)
+        preview_ok = processor.generate_preview(preview_path)
+
+        # ── FFmpeg 2x speed processing ──
         process = processor.process_video()
 
         register_processing(video_id, process, temp_file_path, output_path, cancel_event)
 
-        # FFmpeg phase: 5% → 40%
+        # FFmpeg phase: 10% → 40%
         _update_progress(video_id, 10)
         stdout, stderr = process.communicate()
         _update_progress(video_id, 40)
@@ -351,6 +461,15 @@ def process_video_background(video_id, temp_file_path, original_filename, folder
             error_log = stderr.decode('utf-8')
             raise Exception(f"FFmpeg failed: {error_log}")
 
+        # ── Get processed video duration (should be original / 2) ──
+        processed_duration = None
+        if original_duration:
+            processed_duration = original_duration / 2.0  # 2x speed
+        else:
+            # Fallback: probe the processed file
+            processed_processor = VideoProcessor(output_path, output_path)
+            processed_duration = processed_processor.get_duration()
+
         # Drive upload phase: 40% → 95%
         def on_drive_progress(frac):
             pct = 40 + int(frac * 55)  # 40-95%
@@ -362,13 +481,21 @@ def process_video_background(video_id, temp_file_path, original_filename, folder
             progress_callback=on_drive_progress
         )
 
+        # ── Save everything to DB ──
+        close_old_connections()
         video = Video.objects.get(id=video_id)
         video.file_id = file_id
         video.status = 'COMPLETED'
         video.progress = 100
+        if processed_duration:
+            video.duration = processed_duration
+        if thumbnail_ok and os.path.exists(thumbnail_path):
+            video.thumbnail = f"thumbnails/{thumbnail_filename}"
+        if preview_ok and os.path.exists(preview_path):
+            video.preview = f"previews/{preview_filename}"
         video.save()
 
-        # Cleanup
+        # Cleanup temp files (keep thumbnail & preview in media/)
         if os.path.exists(temp_file_path): os.unlink(temp_file_path)
         if os.path.exists(output_path): os.unlink(output_path)
 

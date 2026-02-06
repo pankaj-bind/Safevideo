@@ -19,3 +19,6 @@ gunicorn>=21.0.0
 python-dotenv>=1.0.0
 whitenoise>=6.6.0
 
+# Image processing (required for thumbnail ImageField)
+Pillow>=9.0.0
+
