@@ -20,7 +20,15 @@ import {
   CloudUpload,
   Trash2,
   X,
-  RefreshCw
+  RefreshCw,
+  Send,
+  Search,
+  Download,
+  FileText,
+  Image,
+  Archive,
+  File,
+  XCircle,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -173,6 +181,424 @@ const UploadModal: React.FC<{
               </div>
             )}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// =============================================================================
+// TELEGRAM UPLOAD MODAL COMPONENT
+// =============================================================================
+interface TelegramMediaItem {
+  msg_id: number;
+  name: string;
+  raw_name: string;
+  size_mb: number;
+  size_bytes: number;
+  mime_type: string;
+  type: string;
+  date: string | null;
+}
+
+const getFileIcon = (type: string) => {
+  switch (type) {
+    case 'video': return Play;
+    case 'pdf': return FileText;
+    case 'image': return Image;
+    case 'archive': return Archive;
+    default: return File;
+  }
+};
+
+const TelegramUploadModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  organizationId: number;
+  categoryId: number;
+  onDownloadStarted: () => void;
+}> = ({ isOpen, onClose, organizationId, categoryId, onDownloadStarted }) => {
+  const [step, setStep] = useState<'group' | 'browse' | 'progress'>('group');
+  const [groupId, setGroupId] = useState('');
+  const [mediaList, setMediaList] = useState<TelegramMediaItem[]>([]);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Progress tracking
+  const [videoIds, setVideoIds] = useState<number[]>([]);
+  const [progressData, setProgressData] = useState<Record<number, { progress: number; status: string; title: string }>>({});
+  const [speedData, setSpeedData] = useState<Record<number, number>>({});
+  const [cancelling, setCancelling] = useState<Set<number>>(new Set());
+
+  // Poll progress + speed
+  React.useEffect(() => {
+    if (step !== 'progress' || videoIds.length === 0) return;
+    const interval = setInterval(async () => {
+      try {
+        const [videosRes, statusRes] = await Promise.all([
+          axiosInstance.get(`${API_ENDPOINTS.VIDEOS.LIST}?organization=${organizationId}`),
+          axiosInstance.post(API_ENDPOINTS.TELEGRAM.STATUS, { video_ids: videoIds }),
+        ]);
+        const map: Record<number, { progress: number; status: string; title: string }> = {};
+        for (const v of videosRes.data) {
+          if (videoIds.includes(v.id)) {
+            map[v.id] = { progress: v.progress, status: v.status, title: v.title };
+          }
+        }
+        setProgressData(map);
+        setSpeedData(statusRes.data.speeds || {});
+
+        // Stop polling when all done
+        const allDone = videoIds.every(
+          (id) => map[id] && ['COMPLETED', 'FAILED', 'CANCELED'].includes(map[id].status)
+        );
+        if (allDone) clearInterval(interval);
+      } catch { /* ignore */ }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [step, videoIds, organizationId]);
+
+  if (!isOpen) return null;
+
+  const handleFetch = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await axiosInstance.get(
+        `${API_ENDPOINTS.TELEGRAM.GROUP_MEDIA}?group_id=${encodeURIComponent(groupId)}`,
+        { timeout: 120_000 }   // 2 min – get_dialogs + scan can be slow
+      );
+      setMediaList(res.data.media || []);
+      setSelected(new Set());
+      setStep('browse');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to fetch media.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleSelect = (msgId: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(msgId) ? next.delete(msgId) : next.add(msgId);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selected.size === filteredMedia.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(filteredMedia.map((m) => m.msg_id)));
+    }
+  };
+
+  const handleDownload = async () => {
+    setError(null);
+    setLoading(true);
+
+    // Build media_info map for the backend
+    const mediaInfo: Record<string, { name: string; size_bytes: number; mime_type: string }> = {};
+    for (const item of mediaList) {
+      if (selected.has(item.msg_id)) {
+        mediaInfo[String(item.msg_id)] = {
+          name: item.name,
+          size_bytes: item.size_bytes,
+          mime_type: item.mime_type,
+        };
+      }
+    }
+
+    try {
+      const res = await axiosInstance.post(API_ENDPOINTS.TELEGRAM.DOWNLOAD, {
+        group_id: groupId,
+        message_ids: Array.from(selected),
+        organization_id: organizationId,
+        category_id: categoryId,
+        media_info: mediaInfo,
+      });
+      setVideoIds(res.data.video_ids || []);
+      setStep('progress');
+      onDownloadStarted();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Download failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelOne = async (vid: number) => {
+    setCancelling((prev) => new Set(prev).add(vid));
+    try {
+      await axiosInstance.post(API_ENDPOINTS.TELEGRAM.CANCEL, { video_ids: [vid] });
+    } catch { /* ignore */ }
+  };
+
+  const handleCancelAll = async () => {
+    const active = videoIds.filter(
+      (id) => !['COMPLETED', 'FAILED', 'CANCELED'].includes(progressData[id]?.status || '')
+    );
+    if (active.length === 0) return;
+    setCancelling(new Set(active));
+    try {
+      await axiosInstance.post(API_ENDPOINTS.TELEGRAM.CANCEL, { video_ids: active });
+    } catch { /* ignore */ }
+  };
+
+  const filteredMedia = mediaList.filter(
+    (m) => m.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Overall progress for progress step
+  const activeIds = videoIds.filter(
+    (id) => !['CANCELED'].includes(progressData[id]?.status || '')
+  );
+  const overallPct =
+    activeIds.length > 0
+      ? Math.round(
+          activeIds.reduce((sum, id) => sum + (progressData[id]?.progress || 0), 0) / activeIds.length
+        )
+      : 0;
+  const doneCount = videoIds.filter((id) => progressData[id]?.status === 'COMPLETED').length;
+  const failedCount = videoIds.filter((id) => progressData[id]?.status === 'FAILED').length;
+  const cancelledCount = videoIds.filter((id) => progressData[id]?.status === 'CANCELED').length;
+  const allFinished = videoIds.length > 0 && (doneCount + failedCount + cancelledCount) === videoIds.length;
+
+  return (
+    <div className="yt-modal-backdrop" onClick={() => { if (!loading && step !== 'progress') onClose(); }}>
+      <div className="yt-modal tg-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="yt-modal-header">
+          <h2>
+            {step === 'group' && 'Upload from Telegram'}
+            {step === 'browse' && `Select Files (${mediaList.length} found)`}
+            {step === 'progress' && 'Downloading & Processing'}
+          </h2>
+          <button
+            onClick={onClose}
+            className="yt-modal-close"
+            disabled={loading || (step === 'progress' && !allFinished)}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="yt-modal-content tg-modal-content">
+          {error && (
+            <div className="yt-upload-error">
+              <AlertCircle size={18} />
+              {error}
+            </div>
+          )}
+
+          {/* ─── Step 1: Enter Group ID ─── */}
+          {step === 'group' && (
+            <div className="tg-step">
+              <p className="tg-step-desc">
+                Enter the Telegram group/channel ID to browse its files.
+              </p>
+              <input
+                className="profile-input"
+                value={groupId}
+                onChange={(e) => setGroupId(e.target.value)}
+                placeholder="e.g. -1002040588991"
+              />
+              <button
+                className="btn btn--primary tg-step-btn"
+                onClick={handleFetch}
+                disabled={!groupId || loading}
+              >
+                {loading ? (
+                  <Loader2 size={16} className="spin-animation" />
+                ) : (
+                  <Search size={16} />
+                )}
+                {loading ? 'Scanning…' : 'Fetch Media'}
+              </button>
+            </div>
+          )}
+
+          {/* ─── Step 2: Browse & Select ─── */}
+          {step === 'browse' && (
+            <div className="tg-browse">
+              <div className="tg-browse-toolbar">
+                <div className="tg-search-box">
+                  <Search size={16} />
+                  <input
+                    placeholder="Search files…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                <label className="tg-select-all">
+                  <input
+                    type="checkbox"
+                    checked={selected.size === filteredMedia.length && filteredMedia.length > 0}
+                    onChange={toggleAll}
+                  />
+                  Select All
+                </label>
+              </div>
+
+              <div className="tg-file-list">
+                {filteredMedia.map((item) => {
+                  const Icon = getFileIcon(item.type);
+                  return (
+                    <label key={item.msg_id} className="tg-file-row">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(item.msg_id)}
+                        onChange={() => toggleSelect(item.msg_id)}
+                      />
+                      <Icon size={18} className="tg-file-icon" />
+                      <span className="tg-file-name" title={item.name}>
+                        {item.name}
+                      </span>
+                      <span className="tg-file-size">{item.size_mb} MB</span>
+                      <span className="tg-file-date">
+                        {item.date ? new Date(item.date).toLocaleDateString() : ''}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="tg-browse-footer">
+                <button className="btn btn--ghost" onClick={() => setStep('group')}>
+                  Back
+                </button>
+                <button
+                  className="btn btn--primary"
+                  onClick={handleDownload}
+                  disabled={selected.size === 0 || loading}
+                >
+                  {loading ? (
+                    <Loader2 size={16} className="spin-animation" />
+                  ) : (
+                    <Download size={16} />
+                  )}
+                  {loading ? 'Starting…' : `Download ${selected.size} file${selected.size !== 1 ? 's' : ''}`}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ─── Step 3: Progress Tracking ─── */}
+          {step === 'progress' && (
+            <div className="tg-progress">
+              {/* Overall ring */}
+              <div className="tg-overall-progress">
+                <svg viewBox="0 0 100 100" width="90" height="90">
+                  <circle cx="50" cy="50" r="42" fill="none" stroke="var(--border-color)" strokeWidth="6" />
+                  <circle
+                    cx="50" cy="50" r="42" fill="none"
+                    stroke="var(--primary-color)" strokeWidth="6"
+                    strokeLinecap="round"
+                    strokeDasharray={`${2 * Math.PI * 42}`}
+                    strokeDashoffset={`${2 * Math.PI * 42 * (1 - overallPct / 100)}`}
+                    transform="rotate(-90 50 50)"
+                    style={{ transition: 'stroke-dashoffset 0.4s ease' }}
+                  />
+                </svg>
+                <span className="tg-overall-pct">{overallPct}%</span>
+              </div>
+
+              <div className="tg-overall-stats">
+                <span className="tg-stat tg-stat--done">{doneCount} done</span>
+                {failedCount > 0 && (
+                  <span className="tg-stat tg-stat--failed">{failedCount} failed</span>
+                )}
+                {cancelledCount > 0 && (
+                  <span className="tg-stat tg-stat--cancelled">{cancelledCount} cancelled</span>
+                )}
+                <span className="tg-stat">{videoIds.length} total</span>
+              </div>
+
+              {/* Cancel All button */}
+              {!allFinished && (
+                <button className="btn btn--danger tg-cancel-all-btn" onClick={handleCancelAll}>
+                  <XCircle size={16} />
+                  Cancel All
+                </button>
+              )}
+
+              {/* Per-file items */}
+              <div className="tg-progress-list">
+                {videoIds.map((vid) => {
+                  const d = progressData[vid];
+                  const pct = d?.progress || 0;
+                  const st = d?.status || 'PENDING';
+                  const title = d?.title || `File #${vid}`;
+                  const speed = speedData[vid] || 0;
+                  const isActive = !['COMPLETED', 'FAILED', 'CANCELED'].includes(st);
+                  const isCancelling = cancelling.has(vid);
+
+                  let phaseLabel = 'Queued';
+                  let phaseColor = 'var(--text-secondary)';
+                  if (st === 'COMPLETED') { phaseLabel = 'Completed'; phaseColor = '#22c55e'; }
+                  else if (st === 'FAILED') { phaseLabel = 'Failed'; phaseColor = '#ef4444'; }
+                  else if (st === 'CANCELED') { phaseLabel = 'Cancelled'; phaseColor = '#f59e0b'; }
+                  else if (isCancelling) { phaseLabel = 'Cancelling…'; phaseColor = '#f59e0b'; }
+                  else if (pct >= 40) { phaseLabel = 'Processing & Uploading'; phaseColor = '#f59e0b'; }
+                  else if (pct >= 5) { phaseLabel = `Downloading${speed > 0 ? ` · ${speed} MB/s` : ''}`; phaseColor = 'var(--primary-color)'; }
+                  else if (pct >= 2) { phaseLabel = 'Starting'; phaseColor = 'var(--primary-color)'; }
+
+                  const StatusIcon =
+                    st === 'COMPLETED' ? CheckCircle :
+                    st === 'FAILED' ? AlertCircle :
+                    st === 'CANCELED' ? XCircle :
+                    pct > 0 ? Loader2 : Clock;
+
+                  return (
+                    <div
+                      key={vid}
+                      className={`tg-progress-item ${st === 'COMPLETED' ? 'tg-progress-item--done' : ''} ${st === 'FAILED' ? 'tg-progress-item--failed' : ''} ${st === 'CANCELED' ? 'tg-progress-item--cancelled' : ''}`}
+                    >
+                      <StatusIcon
+                        size={18}
+                        className={`tg-progress-item-icon ${pct > 0 && isActive && !isCancelling ? 'spin-animation' : ''}`}
+                        style={{ color: phaseColor }}
+                      />
+                      <div className="tg-progress-item-details">
+                        <div className="tg-progress-item-header">
+                          <span className="tg-progress-item-name" title={title}>{title}</span>
+                          <span className="tg-progress-item-pct">{st === 'CANCELED' ? '—' : `${pct}%`}</span>
+                        </div>
+                        <div className="tg-progress-item-bar">
+                          <div
+                            className="tg-progress-item-fill"
+                            style={{ width: `${st === 'CANCELED' ? 0 : pct}%`, background: phaseColor, transition: 'width 0.4s ease' }}
+                          />
+                        </div>
+                        <div className="tg-progress-item-footer">
+                          <span className="tg-progress-phase" style={{ color: phaseColor }}>
+                            {phaseLabel}
+                          </span>
+                          {isActive && !isCancelling && (
+                            <button
+                              className="tg-cancel-btn"
+                              onClick={() => handleCancelOne(vid)}
+                              title="Cancel this download"
+                            >
+                              <XCircle size={14} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {allFinished && (
+                <button className="btn btn--primary tg-step-btn" onClick={onClose}>
+                  Done
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -358,6 +784,7 @@ const OrganizationVideosPage: React.FC = () => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadPhase, setUploadPhase] = useState('Preparing upload…');
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showTelegramModal, setShowTelegramModal] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
@@ -581,6 +1008,11 @@ const OrganizationVideosPage: React.FC = () => {
               <Upload size={20} />
               Upload Video
             </button>
+            
+            <button className="org-upload-btn org-telegram-btn" onClick={() => setShowTelegramModal(true)}>
+              <Send size={20} />
+              Upload from Telegram
+            </button>
           </div>
         </div>
 
@@ -626,6 +1058,15 @@ const OrganizationVideosPage: React.FC = () => {
         uploadError={uploadError}
         uploadProgress={uploadProgress}
         uploadPhase={uploadPhase}
+      />
+
+      {/* Telegram Upload Modal */}
+      <TelegramUploadModal
+        isOpen={showTelegramModal}
+        onClose={() => setShowTelegramModal(false)}
+        organizationId={organization.id}
+        categoryId={category.id}
+        onDownloadStarted={fetchVideos}
       />
     </div>
   );

@@ -5,7 +5,7 @@
 import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Sun, Moon, LogOut, LogIn, Calendar, LayoutDashboard } from 'lucide-react';
+import { Sun, Moon, LogOut, LogIn, Calendar, LayoutDashboard, User } from 'lucide-react';
 
 // Minimal Play Logo - Clean geometric design
 const PlayLogo: React.FC<{ className?: string }> = ({ className }) => (
@@ -63,6 +63,10 @@ const Navbar: React.FC<NavbarProps> = ({ theme, onThemeToggle }) => {
             <Link to="/schedule" className={`navbar__link${isActive('/schedule') ? ' navbar__link--active' : ''}`}>
               <Calendar size={16} />
               <span>Schedule</span>
+            </Link>
+            <Link to="/profile" className={`navbar__link${isActive('/profile') ? ' navbar__link--active' : ''}`}>
+              <User size={16} />
+              <span>Profile</span>
             </Link>
           </nav>
         )}

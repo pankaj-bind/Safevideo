@@ -17,6 +17,7 @@ const OrganizationVideosPage = React.lazy(() => import('./pages/OrganizationVide
 const OrganizationDetailPage = React.lazy(() => import('./pages/OrganizationDetailPage'));
 const WatchPage = React.lazy(() => import('./pages/WatchPage'));
 const SchedulePage = React.lazy(() => import('./pages/SchedulePage'));
+const ProfilePage = React.lazy(() => import('./pages/ProfilePage'));
 
 const App: React.FC = () => {
   return (
@@ -36,6 +37,7 @@ const App: React.FC = () => {
 
               <Route path="/home" element={<ProtectedLayout><HomePage /></ProtectedLayout>} />
               <Route path="/schedule" element={<ProtectedLayout><SchedulePage /></ProtectedLayout>} />
+              <Route path="/profile" element={<ProtectedLayout><ProfilePage /></ProtectedLayout>} />
               <Route path="/videos" element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />
               <Route path="/watch/:videoId" element={<ProtectedLayout><WatchPage /></ProtectedLayout>} />
               <Route path="/:categorySlug/:organizationSlug" element={<ProtectedLayout><OrganizationVideosPage /></ProtectedLayout>} />

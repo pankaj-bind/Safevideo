@@ -25,4 +25,13 @@ export const API_ENDPOINTS = {
     CATEGORIES: '/api/vault/categories/',
     ORGANIZATIONS: '/api/vault/organizations/',
   },
+  TELEGRAM: {
+    CONFIG: '/api/telegram/config/',
+    SEND_OTP: '/api/telegram/send-otp/',
+    VERIFY_OTP: '/api/telegram/verify-otp/',
+    GROUP_MEDIA: '/api/telegram/group-media/',
+    DOWNLOAD: '/api/telegram/download/',
+    CANCEL: '/api/telegram/cancel/',
+    STATUS: '/api/telegram/status/',
+  },
 } as const;

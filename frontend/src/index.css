@@ -4962,3 +4962,580 @@ button {
   }
 }
 
+/* ==========================================================================
+   YT Modal Base (shared by Upload & Telegram modals)
+   ========================================================================= */
+.yt-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 1rem;
+}
+
+.yt-modal {
+  background: var(--card-bg);
+  border-radius: var(--radius-xl);
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.yt-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.yt-modal-header h2 {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.yt-modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out-expo), color var(--duration-fast) var(--ease-out-expo);
+}
+
+.yt-modal-close:hover {
+  background: var(--hover-bg);
+  color: var(--text-primary);
+}
+
+.yt-modal-close:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.yt-modal-content {
+  padding: var(--space-4) var(--space-6) var(--space-6);
+}
+
+/* ==========================================================================
+   Profile Page
+   ========================================================================= */
+.profile-main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: calc(var(--navbar-height) + var(--space-8)) var(--space-6) var(--space-8);
+}
+
+.profile-heading {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: var(--space-6) 0 var(--space-6);
+}
+
+.profile-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  margin-bottom: var(--space-6);
+}
+
+.profile-card__title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+}
+
+.profile-card__desc {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-4);
+  line-height: 1.5;
+}
+
+.profile-card__desc a {
+  color: var(--primary-color);
+  text-decoration: none;
+}
+
+.profile-card__desc a:hover {
+  text-decoration: underline;
+}
+
+.profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.profile-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.profile-input {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: inherit;
+  transition: border-color var(--duration-fast) var(--ease-out-expo);
+}
+
+.profile-input:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+.profile-input-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.profile-input-group .profile-input {
+  padding-right: 2.5rem;
+}
+
+.profile-input-toggle {
+  position: absolute;
+  right: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+}
+
+.profile-input-toggle:hover {
+  color: var(--text-primary);
+}
+
+.profile-save-btn {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.8125rem;
+}
+
+.profile-msg {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+}
+
+.profile-msg--ok {
+  color: var(--success-color);
+  background: var(--success-muted);
+}
+
+.profile-msg--err {
+  color: var(--error-color);
+  background: var(--error-muted);
+}
+
+.profile-verified-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--success-color);
+  background: var(--success-muted);
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--radius-full);
+  margin-left: var(--space-2);
+}
+
+/* ==========================================================================
+   Telegram Upload Modal
+   ========================================================================= */
+.tg-modal {
+  max-width: 620px;
+}
+
+.tg-modal-content {
+  min-height: 180px;
+}
+
+/* Step 1 – Group ID */
+.tg-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.tg-step-desc {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.tg-step-btn {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.8125rem;
+}
+
+/* Step 2 – Browse & Select */
+.tg-browse {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.tg-browse-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.tg-search-box {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+
+.tg-search-box input {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  outline: none;
+}
+
+.tg-select-all {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.tg-select-all input[type="checkbox"] {
+  accent-color: var(--primary-color);
+}
+
+.tg-file-list {
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.tg-file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out-expo);
+  font-size: 0.8125rem;
+}
+
+.tg-file-row:last-child {
+  border-bottom: none;
+}
+
+.tg-file-row:hover {
+  background: var(--hover-bg);
+}
+
+.tg-file-row input[type="checkbox"] {
+  accent-color: var(--primary-color);
+  flex-shrink: 0;
+}
+
+.tg-file-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.tg-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.tg-file-size {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  min-width: 56px;
+  text-align: right;
+}
+
+.tg-file-date {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+  min-width: 72px;
+  text-align: right;
+}
+
+.tg-browse-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.tg-browse-footer .btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Step 3 – Progress Tracking */
+.tg-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.tg-overall-progress {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tg-overall-pct {
+  position: absolute;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.tg-overall-stats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.tg-stat {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.tg-stat--done {
+  color: #22c55e;
+}
+
+.tg-stat--failed {
+  color: #ef4444;
+}
+
+.tg-progress-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.tg-progress-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+}
+
+.tg-progress-item--done {
+  border-color: rgba(34, 197, 94, 0.25);
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.tg-progress-item--failed {
+  border-color: rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.06);
+}
+
+.tg-progress-item--cancelled {
+  border-color: rgba(245, 158, 11, 0.25);
+  background: rgba(245, 158, 11, 0.06);
+  opacity: 0.7;
+}
+
+.tg-progress-item-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.tg-progress-item-details {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.tg-progress-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.tg-progress-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.tg-progress-item-pct {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.tg-progress-item-bar {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-color);
+  overflow: hidden;
+}
+
+.tg-progress-item-fill {
+  height: 100%;
+  border-radius: 2px;
+}
+
+.tg-progress-phase {
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.tg-progress-item-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tg-cancel-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  transition: color var(--duration-fast) var(--ease-out-expo), background var(--duration-fast) var(--ease-out-expo);
+}
+
+.tg-cancel-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.tg-cancel-all-btn {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.8125rem;
+  padding: 0.5rem 1rem;
+}
+
+.tg-stat--cancelled {
+  color: #f59e0b;
+}
+
+/* Telegram button accent */
+.org-telegram-btn {
+  background: #0088cc;
+  border-color: #0088cc;
+}
+
+.org-telegram-btn:hover {
+  background: #0099e6;
+  box-shadow: 0 4px 12px rgba(0, 136, 204, 0.3);
+}
+
+/* Responsive – Telegram modal */
+@media (max-width: 640px) {
+  .tg-modal {
+    max-width: 100%;
+    margin: 0 0.5rem;
+  }
+
+  .tg-browse-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .tg-file-date {
+    display: none;
+  }
+
+  .profile-main {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+}
+
