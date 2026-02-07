@@ -76,7 +76,7 @@ class DriveService:
         
         self.service = build('drive', 'v3', credentials=self.creds)
 
-    def upload_file(self, file_path, title, folder_path=None, progress_callback=None):
+    def upload_file(self, file_path, title, folder_path=None, progress_callback=None, mime_override=None):
         """Upload file to Google Drive with optimized 10MB chunks for faster upload.
         
         Args:
@@ -84,6 +84,7 @@ class DriveService:
             title: Name for the file in Drive
             folder_path: Optional category/organization path (e.g., "Work/ProjectA")
             progress_callback: Optional callable(float) receiving 0.0-1.0 progress
+            mime_override: Optional MIME type override (default: video/mp4)
         
         Performance Notes:
         - 10MB chunks reduce HTTP overhead significantly vs default 256KB
@@ -126,7 +127,7 @@ class DriveService:
         # 10MB chunks for optimal upload performance
         media = MediaFileUpload(
             file_path,
-            mimetype='video/mp4',
+            mimetype=mime_override or 'video/mp4',
             resumable=True,
             chunksize=10 * 1024 * 1024  # 10MB chunks
         )

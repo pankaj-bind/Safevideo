@@ -16,6 +16,7 @@ urlpatterns = [
     path('api/videos/', include('videos.urls')),
     path('api/dashboard/', include(dashboard_urlpatterns)),
     path('api/vault/', include('vault.urls')),
+    path('api/telegram/', include('telegram_integration.urls')),
 ]
 
 # Serve media files in development
