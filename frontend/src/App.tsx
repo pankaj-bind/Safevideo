@@ -13,6 +13,7 @@ const LoginPage = React.lazy(() => import('./pages/LoginPage'));
 const SignupPage = React.lazy(() => import('./pages/SignupPage'));
 const HomePage = React.lazy(() => import('./pages/HomePage'));
 const DashboardPage = React.lazy(() => import('./pages/DashboardPage'));
+const ChaptersPage = React.lazy(() => import('./pages/ChaptersPage'));
 const OrganizationVideosPage = React.lazy(() => import('./pages/OrganizationVideosPage'));
 const OrganizationDetailPage = React.lazy(() => import('./pages/OrganizationDetailPage'));
 const WatchPage = React.lazy(() => import('./pages/WatchPage'));
@@ -40,8 +41,9 @@ const App: React.FC = () => {
               <Route path="/profile" element={<ProtectedLayout><ProfilePage /></ProtectedLayout>} />
               <Route path="/videos" element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} />
               <Route path="/watch/:videoId" element={<ProtectedLayout><WatchPage /></ProtectedLayout>} />
-              <Route path="/:categorySlug/:organizationSlug" element={<ProtectedLayout><OrganizationVideosPage /></ProtectedLayout>} />
-              <Route path="/:categorySlug/:organizationSlug/:videoSlug" element={<ProtectedLayout><OrganizationDetailPage /></ProtectedLayout>} />
+              <Route path="/:categorySlug/:organizationSlug" element={<ProtectedLayout><ChaptersPage /></ProtectedLayout>} />
+              <Route path="/:categorySlug/:organizationSlug/:chapterSlug" element={<ProtectedLayout><OrganizationVideosPage /></ProtectedLayout>} />
+              <Route path="/:categorySlug/:organizationSlug/:chapterSlug/:videoSlug" element={<ProtectedLayout><OrganizationDetailPage /></ProtectedLayout>} />
 
               <Route path="/category/:categoryId/organization/:organizationId" element={<Navigate to="/home" replace />} />
               <Route path="/dashboard" element={<Navigate to="/home" replace />} />

@@ -39,6 +39,7 @@ interface Organization {
   logo_url?: string | null;
   credential_count: number;
   video_count?: number;
+  chapter_count?: number;
 }
 
 interface Category {
@@ -486,7 +487,7 @@ const HomePage: React.FC = () => {
                                     <div className="org-card-info">
                                       <h4 className="org-card-name">{org.name}</h4>
                                       <span className="org-card-videos">
-                                        <Video size={13} /> {org.video_count ?? 0}
+                                        <Video size={13} /> {org.chapter_count ?? 0} {(org.chapter_count ?? 0) === 1 ? 'chapter' : 'chapters'}
                                       </span>
                                     </div>
                                     {/* Arrow removed for cleaner look, available on hover via CSS if needed, or just keep it simple */}

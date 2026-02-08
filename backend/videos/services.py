@@ -66,7 +66,7 @@ class DriveService:
     def __init__(self):
         self.creds = None
         if os.path.exists(TOKEN_PATH):
-            self.creds = Credentials.from_authorized_user_file(TOKEN_PATH, ['https://www.googleapis.com/auth/drive.file'])
+            self.creds = Credentials.from_authorized_user_file(TOKEN_PATH, ['https://www.googleapis.com/auth/drive'])
         
         if not self.creds or not self.creds.valid:
             if self.creds and self.creds.expired and self.creds.refresh_token:
@@ -75,6 +75,82 @@ class DriveService:
                 raise Exception("Google Drive credentials not valid. Run setup_auth.py first.")
         
         self.service = build('drive', 'v3', credentials=self.creds)
+
+    def get_or_create_folder(self, folder_path):
+        """Navigate/create a folder hierarchy and return the final folder ID.
+        
+        Args:
+            folder_path: Slash-separated path (e.g., "Gate/Digital Logic/MyVideo")
+        
+        Returns:
+            Google Drive folder ID of the deepest folder
+        """
+        parent_folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
+        if not parent_folder_id:
+            raise Exception("GOOGLE_DRIVE_FOLDER_ID not configured")
+        
+        folder_names = folder_path.split('/')
+        current_parent = parent_folder_id
+        
+        for folder_name in folder_names:
+            query = f"name='{folder_name}' and '{current_parent}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            results = self.service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
+            folders = results.get('files', [])
+            
+            if folders:
+                current_parent = folders[0]['id']
+            else:
+                folder_metadata = {
+                    'name': folder_name,
+                    'mimeType': 'application/vnd.google-apps.folder',
+                    'parents': [current_parent]
+                }
+                folder = self.service.files().create(body=folder_metadata, fields='id').execute()
+                current_parent = folder.get('id')
+        
+        return current_parent
+
+    def upload_to_folder(self, file_path, title, parent_folder_id, progress_callback=None, mime_override=None):
+        """Upload a file into a specific Drive folder.
+        
+        Args:
+            file_path: Path to the local file
+            title: Name for the file in Drive
+            parent_folder_id: Drive folder ID to upload into
+            progress_callback: Optional callable(float) receiving 0.0-1.0 progress
+            mime_override: Optional MIME type (default: video/mp4)
+        
+        Returns:
+            Google Drive file ID
+        """
+        file_metadata = {
+            'name': title,
+            'parents': [parent_folder_id]
+        }
+        
+        media = MediaFileUpload(
+            file_path,
+            mimetype=mime_override or 'video/mp4',
+            resumable=True,
+            chunksize=10 * 1024 * 1024
+        )
+        
+        request = self.service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id'
+        )
+        
+        response = None
+        while response is None:
+            upload_status, response = request.next_chunk()
+            if upload_status and progress_callback:
+                progress_callback(upload_status.progress())
+        
+        if progress_callback:
+            progress_callback(1.0)
+        
+        return response.get('id')
 
     def upload_file(self, file_path, title, folder_path=None, progress_callback=None, mime_override=None):
         """Upload file to Google Drive with optimized 10MB chunks for faster upload.
@@ -86,69 +162,15 @@ class DriveService:
             progress_callback: Optional callable(float) receiving 0.0-1.0 progress
             mime_override: Optional MIME type override (default: video/mp4)
         
-        Performance Notes:
-        - 10MB chunks reduce HTTP overhead significantly vs default 256KB
-        - Resumable upload allows recovery from network interruptions
-        - Typically 2-3x faster upload for large files (500MB+)
+        Returns:
+            Google Drive file ID
         """
-        # Get or create folder hierarchy
-        parent_folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
+        if folder_path:
+            parent_folder_id = self.get_or_create_folder(folder_path)
+        else:
+            parent_folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
         
-        if folder_path and parent_folder_id:
-            # Create nested folder structure: root -> category -> organization
-            folder_names = folder_path.split('/')
-            current_parent = parent_folder_id
-            
-            for folder_name in folder_names:
-                # Check if folder exists
-                query = f"name='{folder_name}' and '{current_parent}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-                results = self.service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
-                folders = results.get('files', [])
-                
-                if folders:
-                    current_parent = folders[0]['id']
-                else:
-                    # Create the folder
-                    folder_metadata = {
-                        'name': folder_name,
-                        'mimeType': 'application/vnd.google-apps.folder',
-                        'parents': [current_parent]
-                    }
-                    folder = self.service.files().create(body=folder_metadata, fields='id').execute()
-                    current_parent = folder.get('id')
-            
-            parent_folder_id = current_parent
-        
-        file_metadata = {
-            'name': title,
-            'parents': [parent_folder_id] if parent_folder_id else []
-        }
-        
-        # 10MB chunks for optimal upload performance
-        media = MediaFileUpload(
-            file_path,
-            mimetype=mime_override or 'video/mp4',
-            resumable=True,
-            chunksize=10 * 1024 * 1024  # 10MB chunks
-        )
-        
-        request = self.service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id'
-        )
-        
-        # Use resumable upload with progress callback
-        response = None
-        while response is None:
-            upload_status, response = request.next_chunk()
-            if upload_status and progress_callback:
-                progress_callback(upload_status.progress())
-        
-        if progress_callback:
-            progress_callback(1.0)
-        
-        return response.get('id')
+        return self.upload_to_folder(file_path, title, parent_folder_id, progress_callback, mime_override)
 
     def get_file_stream(self, file_id):
         """Legacy method - kept for backward compatibility. Loads entire file into memory."""
@@ -161,6 +183,46 @@ class DriveService:
         
         file_io.seek(0)
         return file_io
+
+    def get_file_metadata(self, file_id):
+        """Return size (bytes) and mimeType for a Drive file."""
+        meta = self.service.files().get(
+            fileId=file_id, fields='size,mimeType'
+        ).execute()
+        return {
+            'size': int(meta.get('size', 0)),
+            'mimeType': meta.get('mimeType', 'video/mp4'),
+        }
+
+    def get_file_range_iterator(self, file_id, start=0, end=None):
+        """Yield chunks for a byte-range of a Drive file.
+
+        Args:
+            file_id: Google Drive file ID
+            start: First byte position (inclusive)
+            end: Last byte position (inclusive). None = to EOF.
+
+        Yields:
+            bytes chunks (~1 MB each)
+        """
+        if self.creds.expired and self.creds.refresh_token:
+            self.creds.refresh(Request())
+
+        session = AuthorizedSession(self.creds)
+        url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
+
+        headers = {}
+        if end is not None:
+            headers['Range'] = f'bytes={start}-{end}'
+        elif start > 0:
+            headers['Range'] = f'bytes={start}-'
+
+        response = session.get(url, stream=True, headers=headers)
+        response.raise_for_status()
+
+        for chunk in response.iter_content(chunk_size=1 * 1024 * 1024):
+            if chunk:
+                yield chunk
 
     def get_file_iterator(self, file_id):
         """Yields chunks of data from Google Drive without loading file into memory.
@@ -187,20 +249,116 @@ class DriveService:
             if chunk:
                 yield chunk
 
+    def download_file_to_temp(self, file_id, suffix='.mp4'):
+        """Download a file from Google Drive to a local temp file.
+        
+        Args:
+            file_id: Google Drive file ID
+            suffix: File extension for the temp file
+        
+        Returns:
+            Path to the downloaded temp file
+        """
+        request = self.service.files().get_media(fileId=file_id)
+        temp_file = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        downloader = MediaIoBaseDownload(temp_file, request, chunksize=10 * 1024 * 1024)
+        
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+        
+        temp_file.close()
+        return temp_file.name
+
+    def move_file_to_folder(self, file_id, new_parent_id):
+        """Move a file into a different folder on Google Drive."""
+        try:
+            # Get current parents
+            file_info = self.service.files().get(fileId=file_id, fields='parents').execute()
+            old_parents = ','.join(file_info.get('parents', []))
+            
+            self.service.files().update(
+                fileId=file_id,
+                addParents=new_parent_id,
+                removeParents=old_parents,
+                fields='id'
+            ).execute()
+        except Exception as e:
+            logger.error(f"Error moving file {file_id}: {e}")
+            raise
+
+    def file_exists(self, file_id):
+        """Check if a file or folder still exists (not trashed) on Google Drive."""
+        try:
+            f = self.service.files().get(fileId=file_id, fields='id,trashed').execute()
+            return not f.get('trashed', False)
+        except Exception:
+            return False
+
+    def folder_exists_in_path(self, folder_path):
+        """Check whether a full folder path still exists on Drive.
+
+        Returns the folder ID if every segment exists, or None.
+        """
+        parent_folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
+        if not parent_folder_id:
+            return None
+
+        folder_names = folder_path.split('/')
+        current_parent = parent_folder_id
+
+        for folder_name in folder_names:
+            query = (
+                f"name='{folder_name}' and '{current_parent}' in parents "
+                f"and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            )
+            results = self.service.files().list(
+                q=query, spaces='drive', fields='files(id)'
+            ).execute()
+            folders = results.get('files', [])
+            if not folders:
+                return None
+            current_parent = folders[0]['id']
+
+        return current_parent
+
     def delete_file(self, file_id):
         try:
             self.service.files().delete(fileId=file_id).execute()
         except Exception as e:
             print(f"Error deleting file from Drive: {e}")
 
+    def delete_folder(self, folder_id):
+        """Delete an entire folder and all its contents from Google Drive."""
+        try:
+            self.service.files().delete(fileId=folder_id).execute()
+        except Exception as e:
+            logger.error(f"Error deleting folder {folder_id}: {e}")
+
+    def list_folder_contents(self, folder_id):
+        """List all files (non-folder) in a Drive folder."""
+        try:
+            query = f"'{folder_id}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'"
+            results = self.service.files().list(
+                q=query,
+                spaces='drive',
+                fields='files(id, name, size, mimeType)',
+            ).execute()
+            return results.get('files', [])
+        except Exception as e:
+            logger.error(f"Error listing folder contents: {e}")
+            return []
+
     def list_folder_files(self, folder_path):
         """List all video files in a specific Google Drive folder path.
         
-        Args:
-            folder_path: Category/Organization path (e.g., "Work/ProjectA")
+        Supports both:
+        - Loose video files directly in the org folder (legacy/manual uploads)
+        - Video subfolders (new structure: VideoName/video.mp4 + thumbnail + preview)
         
         Returns:
-            List of dicts with file metadata: id, name, size, mimeType, createdTime
+            List of dicts: {id, name, size, mimeType, createdTime, drive_folder_id?,
+                            thumbnail_id?, preview_id?}
         """
         try:
             parent_folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
@@ -219,23 +377,65 @@ class DriveService:
                     folders = results.get('files', [])
                     
                     if not folders:
-                        # Folder doesn't exist yet
                         return []
                     
                     current_parent = folders[0]['id']
                 
                 parent_folder_id = current_parent
             
-            # List all video files in the target folder
+            all_videos = []
+            
+            # 1) Loose video files directly in the org folder
             query = f"'{parent_folder_id}' in parents and mimeType contains 'video/' and trashed=false"
             results = self.service.files().list(
                 q=query,
                 spaces='drive',
-                fields='files(id, name, size, mimeType, createdTime)',
+                fields='files(id, name, size, mimeType, createdTime, videoMediaMetadata)',
                 orderBy='createdTime desc'
             ).execute()
+            all_videos.extend(results.get('files', []))
             
-            return results.get('files', [])
+            # 2) Subfolders (new structure) — look inside each subfolder for video files
+            subfolder_query = f"'{parent_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            subfolder_results = self.service.files().list(
+                q=subfolder_query,
+                spaces='drive',
+                fields='files(id, name, createdTime)',
+            ).execute()
+            
+            for subfolder in subfolder_results.get('files', []):
+                sf_id = subfolder['id']
+                # List files inside the subfolder
+                inner_query = f"'{sf_id}' in parents and trashed=false"
+                inner_results = self.service.files().list(
+                    q=inner_query,
+                    spaces='drive',
+                    fields='files(id, name, size, mimeType, videoMediaMetadata)',
+                ).execute()
+                inner_files = inner_results.get('files', [])
+                
+                video_file = None
+                thumbnail_id = None
+                preview_id = None
+                
+                for f in inner_files:
+                    mime = f.get('mimeType', '')
+                    name = f.get('name', '')
+                    if name == 'thumbnail.jpg':
+                        thumbnail_id = f['id']
+                    elif name == 'preview.mp4':
+                        preview_id = f['id']
+                    elif mime.startswith('video/'):
+                        video_file = f
+                
+                if video_file:
+                    video_file['drive_folder_id'] = sf_id
+                    video_file['thumbnail_id'] = thumbnail_id
+                    video_file['preview_id'] = preview_id
+                    video_file['createdTime'] = subfolder.get('createdTime')
+                    all_videos.append(video_file)
+            
+            return all_videos
             
         except Exception as e:
             print(f"Error listing folder files: {e}")
@@ -426,19 +626,14 @@ def process_video_background(video_id, temp_file_path, original_filename, folder
         
         # ── Generate thumbnail from original file (at 1 second) ──
         _update_progress(video_id, 8)
-        thumbnail_dir = os.path.join(settings.MEDIA_ROOT, 'thumbnails')
-        os.makedirs(thumbnail_dir, exist_ok=True)
-        thumbnail_filename = f"thumb_{video_id}_{int(time.time())}.jpg"
-        thumbnail_path = os.path.join(thumbnail_dir, thumbnail_filename)
+        temp_dir = tempfile.gettempdir()
+        thumbnail_path = os.path.join(temp_dir, f"thumb_{video_id}_{int(time.time())}.jpg")
         thumbnail_ok = processor.generate_thumbnail(thumbnail_path)
         
-        # ── Generate preview clip from original file (6 second clip) ──
+        # ── Generate preview clip from original file (5 second clip) ──
         _update_progress(video_id, 9)
-        preview_dir = os.path.join(settings.MEDIA_ROOT, 'previews')
-        os.makedirs(preview_dir, exist_ok=True)
-        preview_filename = f"preview_{video_id}_{int(time.time())}.mp4"
-        preview_path = os.path.join(preview_dir, preview_filename)
-        preview_ok = processor.generate_preview(preview_path)
+        preview_path = os.path.join(temp_dir, f"preview_{video_id}_{int(time.time())}.mp4")
+        preview_ok = processor.generate_preview(preview_path, clip_duration=5)
 
         # ── FFmpeg 2x speed processing ──
         process = processor.process_video()
@@ -467,38 +662,65 @@ def process_video_background(video_id, temp_file_path, original_filename, folder
         if original_duration:
             processed_duration = original_duration / 2.0  # 2x speed
         else:
-            # Fallback: probe the processed file
             processed_processor = VideoProcessor(output_path, output_path)
             processed_duration = processed_processor.get_duration()
 
-        # Drive upload phase: 40% → 95%
-        def on_drive_progress(frac):
-            pct = 40 + int(frac * 55)  # 40-95%
-            _update_progress(video_id, pct)
-
+        # ── Create video folder on Drive & upload all assets ──
         drive_service = DriveService()
-        file_id = drive_service.upload_file(
-            output_path, f"Processed_{original_filename}", folder_path,
+        
+        # Build video folder name from original filename (without extension)
+        video_folder_name = os.path.splitext(original_filename)[0]
+        if folder_path:
+            full_folder_path = f"{folder_path}/{video_folder_name}"
+        else:
+            full_folder_path = video_folder_name
+        
+        video_folder_id = drive_service.get_or_create_folder(full_folder_path)
+        _update_progress(video_id, 42)
+        
+        # Upload processed video into the folder
+        def on_drive_progress(frac):
+            pct = 42 + int(frac * 48)  # 42-90%
+            _update_progress(video_id, pct)
+        
+        file_id = drive_service.upload_to_folder(
+            output_path, f"Processed_{original_filename}", video_folder_id,
             progress_callback=on_drive_progress
         )
+        _update_progress(video_id, 92)
+        
+        # Upload thumbnail to Drive folder
+        thumbnail_drive_id = None
+        if thumbnail_ok and os.path.exists(thumbnail_path):
+            thumbnail_drive_id = drive_service.upload_to_folder(
+                thumbnail_path, 'thumbnail.jpg', video_folder_id,
+                mime_override='image/jpeg'
+            )
+        _update_progress(video_id, 95)
+        
+        # Upload preview to Drive folder
+        preview_drive_id = None
+        if preview_ok and os.path.exists(preview_path):
+            preview_drive_id = drive_service.upload_to_folder(
+                preview_path, 'preview.mp4', video_folder_id,
+                mime_override='video/mp4'
+            )
+        _update_progress(video_id, 98)
 
         # ── Save everything to DB ──
         close_old_connections()
         video = Video.objects.get(id=video_id)
         video.file_id = file_id
+        video.drive_folder_id = video_folder_id
         video.status = 'COMPLETED'
         video.progress = 100
         if processed_duration:
             video.duration = processed_duration
-        if thumbnail_ok and os.path.exists(thumbnail_path):
-            video.thumbnail = f"thumbnails/{thumbnail_filename}"
-        if preview_ok and os.path.exists(preview_path):
-            video.preview = f"previews/{preview_filename}"
+        if thumbnail_drive_id:
+            video.thumbnail = thumbnail_drive_id
+        if preview_drive_id:
+            video.preview = preview_drive_id
         video.save()
-
-        # Cleanup temp files (keep thumbnail & preview in media/)
-        if os.path.exists(temp_file_path): os.unlink(temp_file_path)
-        if os.path.exists(output_path): os.unlink(output_path)
 
     except Exception as e:
         logger.error(f"Background Processing Error: {e}")
@@ -510,15 +732,19 @@ def process_video_background(video_id, temp_file_path, original_filename, folder
             video.save()
         except Exception as db_e:
              print(f"Failed to save error state: {db_e}")
-        
-        if os.path.exists(temp_file_path): os.unlink(temp_file_path)
-        if 'output_path' in locals() and os.path.exists(output_path):
-            os.unlink(output_path)
     finally:
-        if os.path.exists(temp_file_path):
-            os.unlink(temp_file_path)
+        # Cleanup ALL temp files
+        for path in [temp_file_path, thumbnail_path, preview_path]:
+            if path and os.path.exists(path):
+                try:
+                    os.unlink(path)
+                except Exception:
+                    pass
         if 'output_path' in locals() and os.path.exists(output_path):
-            os.unlink(output_path)
+            try:
+                os.unlink(output_path)
+            except Exception:
+                pass
         unregister_processing(video_id)
         close_old_connections()
 
@@ -531,3 +757,109 @@ def start_background_processing(video_id, temp_file_path, original_filename, fol
         original_filename,
         folder_path
     )
+
+
+def generate_sync_metadata(video_id):
+    """Download video from Drive, extract duration, generate thumbnail & preview.
+    
+    For synced videos: downloads temporarily, generates assets,
+    uploads thumbnail+preview to Drive (creating a video subfolder if needed),
+    then cleans up all local temp files.
+    """
+    close_old_connections()
+    temp_path = None
+    thumbnail_path = None
+    preview_path = None
+    
+    try:
+        video = Video.objects.get(id=video_id)
+        
+        if not video.file_id:
+            logger.warning(f"Video {video_id} has no file_id, skipping metadata generation")
+            return
+        
+        logger.info(f"Generating metadata for synced video: {video.title} (id={video_id})")
+        
+        drive_service = DriveService()
+        
+        # Download from Drive to temp file
+        temp_path = drive_service.download_file_to_temp(video.file_id)
+        
+        processor = VideoProcessor(temp_path, temp_path)
+        
+        # Extract duration
+        duration = processor.get_duration()
+        
+        # Generate thumbnail locally
+        temp_dir = tempfile.gettempdir()
+        thumbnail_path = os.path.join(temp_dir, f"thumb_{video_id}_{int(time.time())}.jpg")
+        thumbnail_ok = processor.generate_thumbnail(thumbnail_path)
+        
+        # Generate preview locally (5 second clip)
+        preview_path = os.path.join(temp_dir, f"preview_{video_id}_{int(time.time())}.mp4")
+        preview_ok = processor.generate_preview(preview_path, clip_duration=5)
+        
+        # Ensure a video folder exists on Drive
+        video_folder_id = video.drive_folder_id
+        
+        if not video_folder_id:
+            # Create a subfolder for this video and move the video file into it
+            video_folder_name = os.path.splitext(video.title)[0]
+            if video.folder_path:
+                full_folder_path = f"{video.folder_path}/{video_folder_name}"
+            else:
+                full_folder_path = video_folder_name
+            
+            video_folder_id = drive_service.get_or_create_folder(full_folder_path)
+            
+            # Move the video file into the new subfolder
+            try:
+                drive_service.move_file_to_folder(video.file_id, video_folder_id)
+            except Exception as move_err:
+                logger.warning(f"Could not move video {video_id} to subfolder: {move_err}")
+        
+        # Upload thumbnail to Drive
+        thumbnail_drive_id = None
+        if thumbnail_ok and os.path.exists(thumbnail_path):
+            thumbnail_drive_id = drive_service.upload_to_folder(
+                thumbnail_path, 'thumbnail.jpg', video_folder_id,
+                mime_override='image/jpeg'
+            )
+        
+        # Upload preview to Drive
+        preview_drive_id = None
+        if preview_ok and os.path.exists(preview_path):
+            preview_drive_id = drive_service.upload_to_folder(
+                preview_path, 'preview.mp4', video_folder_id,
+                mime_override='video/mp4'
+            )
+        
+        # Save to DB
+        close_old_connections()
+        video = Video.objects.get(id=video_id)
+        video.drive_folder_id = video_folder_id
+        if duration:
+            video.duration = duration
+        if thumbnail_drive_id:
+            video.thumbnail = thumbnail_drive_id
+        if preview_drive_id:
+            video.preview = preview_drive_id
+        video.save()
+        
+        logger.info(f"Metadata generated for video {video_id}: duration={duration}, thumb={bool(thumbnail_drive_id)}, preview={bool(preview_drive_id)}")
+    
+    except Exception as e:
+        logger.error(f"Metadata generation error for video {video_id}: {e}")
+    finally:
+        for path in [temp_path, thumbnail_path, preview_path]:
+            if path and os.path.exists(path):
+                try:
+                    os.unlink(path)
+                except Exception:
+                    pass
+        close_old_connections()
+
+
+def start_sync_metadata(video_id):
+    """Submit metadata generation to the shared worker pool."""
+    PROCESSING_EXECUTOR.submit(generate_sync_metadata, video_id)

@@ -611,7 +611,7 @@ async def _download_single(client, rec, parsed_gid, folder_path, idx, total):
             logger.info(f"[{idx+1}/{total}] Video queued: {display_name}")
             _cleanup_tracking(video_id)
         else:
-            # Non-video → upload directly to Drive (sync, run in executor)
+            # Non-video → upload to Drive in a subfolder (sync, run in executor)
             def _upload_non_video():
                 from videos.services import DriveService
                 try:
@@ -619,15 +619,22 @@ async def _download_single(client, rec, parsed_gid, folder_path, idx, total):
                     upload_mime = (mime or mimetypes.guess_type(clean_name)[0]
                                    or 'application/octet-stream')
                     drive = DriveService()
-                    file_id = drive.upload_file(
-                        local_path, display_name, folder_path,
+                    
+                    # Create a subfolder for the file
+                    file_folder_name = os.path.splitext(display_name)[0]
+                    full_folder_path = f"{folder_path}/{file_folder_name}" if folder_path else file_folder_name
+                    video_folder_id = drive.get_or_create_folder(full_folder_path)
+                    
+                    file_id = drive.upload_to_folder(
+                        local_path, display_name, video_folder_id,
                         progress_callback=lambda f: _update_video_progress(
                             video_id, 45 + int(f * 50)),
                         mime_override=upload_mime,
                     )
                     _db_update_video(video_id,
                                      status='COMPLETED', progress=100,
-                                     file_id=file_id)
+                                     file_id=file_id,
+                                     drive_folder_id=video_folder_id)
                     logger.info(f"[{idx+1}/{total}] Uploaded: {display_name}")
                 except Exception as err:
                     logger.error(f"Drive upload failed: {err}")

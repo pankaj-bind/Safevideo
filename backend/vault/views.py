@@ -4,12 +4,14 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
-from .models import Category, Organization
+from .models import Category, Organization, Chapter
 from .serializers import (
     CategorySerializer, 
     CategoryCreateSerializer,
     OrganizationSerializer,
-    OrganizationCreateSerializer
+    OrganizationCreateSerializer,
+    ChapterSerializer,
+    ChapterCreateSerializer,
 )
 
 
@@ -22,7 +24,10 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return Category.objects.filter(user=self.request.user).prefetch_related(
             Prefetch(
                 'organizations',
-                queryset=Organization.objects.annotate(video_count=Count('videos'))
+                queryset=Organization.objects.annotate(
+                    video_count=Count('videos'),
+                    chapter_count=Count('chapters', distinct=True),
+                )
             )
         )
     
@@ -52,7 +57,10 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return Organization.objects.filter(
             category__user=self.request.user
-        ).annotate(video_count=Count('videos'))
+        ).annotate(
+            video_count=Count('videos'),
+            chapter_count=Count('chapters', distinct=True),
+        )
     
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -112,3 +120,32 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(organization, context={'request': request})
         return Response(serializer.data)
+
+
+class ChapterViewSet(viewsets.ModelViewSet):
+    """ViewSet for Chapter CRUD operations"""
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = Chapter.objects.filter(
+            organization__category__user=self.request.user
+        ).annotate(video_count=Count('videos'))
+        # Optionally filter by organization
+        org_id = self.request.query_params.get('organization')
+        if org_id:
+            qs = qs.filter(organization_id=org_id)
+        return qs
+
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return ChapterCreateSerializer
+        return ChapterSerializer
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.organization.category.user != request.user:
+            return Response(
+                {"error": "You don't have permission to delete this chapter."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().destroy(request, *args, **kwargs)

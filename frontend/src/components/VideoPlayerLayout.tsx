@@ -75,7 +75,7 @@ const VideoPlayerLayout: React.FC<VideoPlayerLayoutProps> = ({ videoSrc, title, 
       <div className="watch-left">
         <div className="watch-left-scroll">
           <div className="watch-player">
-            <video ref={videoRef} controls preload="metadata">
+            <video ref={videoRef} controls preload="auto" crossOrigin="use-credentials">
               <source src={videoSrc} type="video/mp4" />
               Your browser does not support the video tag.
             </video>

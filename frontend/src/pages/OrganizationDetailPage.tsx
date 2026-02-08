@@ -411,6 +411,8 @@ const VideoPlayer: React.FC<{
       <video
         ref={videoRef}
         className="yt-video"
+        preload="auto"
+        crossOrigin="use-credentials"
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onEnded={handleVideoEnd}
@@ -741,9 +743,10 @@ const UploadModal: React.FC<{
 // MAIN COMPONENT
 // =============================================================================
 const OrganizationDetailPage: React.FC = () => {
-  const { categorySlug, organizationSlug, videoSlug } = useParams<{ 
+  const { categorySlug, organizationSlug, chapterSlug, videoSlug } = useParams<{ 
     categorySlug: string; 
     organizationSlug: string;
+    chapterSlug: string;
     videoSlug: string;
   }>();
   const navigate = useNavigate();
@@ -753,6 +756,7 @@ const OrganizationDetailPage: React.FC = () => {
 
   const [organization, setOrganization] = useState<Organization>({ id: 0, name: '', credential_count: 0 });
   const [category, setCategory] = useState<Category>({ id: 0, name: '' });
+  const [chapter, setChapter] = useState<{ id: number; name: string }>({ id: 0, name: '' });
   const [videos, setVideos] = useState<Video[]>([]);
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -765,13 +769,13 @@ const OrganizationDetailPage: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-  }, [categorySlug, organizationSlug, videoSlug]);
+  }, [categorySlug, organizationSlug, chapterSlug, videoSlug]);
 
   useEffect(() => {
-    if (!organization.id || isUploading) return;
+    if (!chapter.id || isUploading) return;
     const interval = setInterval(fetchVideos, 10000); // Increased to 10 seconds
     return () => clearInterval(interval);
-  }, [organization.id, isUploading]);
+  }, [chapter.id, isUploading]);
 
   // Auto-select video when videos load
   useEffect(() => {
@@ -820,7 +824,20 @@ const OrganizationDetailPage: React.FC = () => {
       setCategory(foundCategory);
       setOrganization(foundOrganization);
 
-      const videosResponse = await axiosInstance.get(`${API_ENDPOINTS.VIDEOS.LIST}?organization=${foundOrganization.id}`);
+      // Resolve chapter from slug
+      const chaptersRes = await axiosInstance.get(`/api/vault/chapters/?organization=${foundOrganization.id}`);
+      const foundChapter = chaptersRes.data.find(
+        (ch: any) => (ch.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')) === chapterSlug
+      );
+
+      if (!foundChapter) {
+        navigate(`/${categorySlug}/${organizationSlug}`);
+        return;
+      }
+
+      setChapter(foundChapter);
+
+      const videosResponse = await axiosInstance.get(`${API_ENDPOINTS.VIDEOS.LIST}?chapter=${foundChapter.id}`);
       setVideos(videosResponse.data);
     } catch (error) {
       console.error('Failed to fetch data:', error);
@@ -831,9 +848,9 @@ const OrganizationDetailPage: React.FC = () => {
   };
 
   const fetchVideos = async () => {
-    if (!organization.id) return;
+    if (!chapter.id) return;
     try {
-      const response = await axiosInstance.get(`${API_ENDPOINTS.VIDEOS.LIST}?organization=${organization.id}`);
+      const response = await axiosInstance.get(`${API_ENDPOINTS.VIDEOS.LIST}?chapter=${chapter.id}`);
       setVideos(response.data);
     } catch (error) {
       console.error('Failed to fetch videos:', error);
@@ -862,6 +879,7 @@ const OrganizationDetailPage: React.FC = () => {
         formData.append('filename', file.name);
         formData.append('organization', organization.id.toString());
         formData.append('category', category.id.toString());
+        formData.append('chapter', chapter.id.toString());
 
         await axiosInstance.post(API_ENDPOINTS.VIDEOS.UPLOAD, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
@@ -873,7 +891,8 @@ const OrganizationDetailPage: React.FC = () => {
         filename: file.name,
         total_chunks: totalChunks,
         organization: organization.id,
-        category: category.id
+        category: category.id,
+        chapter_id: chapter.id
       });
 
       setShowUploadModal(false);
@@ -916,7 +935,7 @@ const OrganizationDetailPage: React.FC = () => {
   const handleSelectVideo = (video: Video) => {
     if (video.status === 'COMPLETED' && video.file_id) {
       const videoSlug = slugify(video.title);
-      navigate(`/${categorySlug}/${organizationSlug}/${videoSlug}`, { state: { videoId: video.id } });
+      navigate(`/${categorySlug}/${organizationSlug}/${chapterSlug}/${videoSlug}`, { state: { videoId: video.id } });
     }
   };
 
@@ -1027,7 +1046,7 @@ const OrganizationDetailPage: React.FC = () => {
             <div className="yt-playlist-section-header">
               <div className="yt-org-info-inline">
                 <button 
-                  onClick={() => navigate(`/${categorySlug}/${organizationSlug}`)} 
+                  onClick={() => navigate(`/${categorySlug}/${organizationSlug}/${chapterSlug}`)} 
                   className="yt-back-btn-inline"
                 >
                   <ArrowLeft size={18} />
@@ -1036,8 +1055,8 @@ const OrganizationDetailPage: React.FC = () => {
                   <img src={organization.logo_url} alt="" className="yt-org-logo-inline" />
                 )}
                 <div>
-                  <p className="yt-org-category-inline">{category.name}</p>
-                  <h2 className="yt-org-name-inline">{organization.name}</h2>
+                  <p className="yt-org-category-inline">{category.name} › {organization.name}</p>
+                  <h2 className="yt-org-name-inline">{chapter.name}</h2>
                 </div>
               </div>
               <button 

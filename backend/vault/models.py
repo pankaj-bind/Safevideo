@@ -33,3 +33,18 @@ class Organization(models.Model):
 
     def __str__(self):
         return f"{self.category.name} - {self.name}"
+
+
+class Chapter(models.Model):
+    """Chapter model — sits between Organization and Videos"""
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='chapters')
+    name = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        unique_together = ['organization', 'name']
+
+    def __str__(self):
+        return f"{self.organization.name} - {self.name}"

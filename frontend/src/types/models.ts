@@ -34,6 +34,15 @@ export interface Organization {
   logo: string | null;
   logo_url?: string | null;
   credential_count: number;
+  chapter_count?: number;
+}
+
+export interface Chapter {
+  id: number;
+  name: string;
+  video_count?: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Note {

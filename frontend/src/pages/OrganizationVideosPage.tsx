@@ -613,7 +613,8 @@ const VideoCard: React.FC<{
   onDelete: (id: number) => void;
   categorySlug: string;
   organizationSlug: string;
-}> = ({ video, onDelete, categorySlug, organizationSlug }) => {
+  chapterSlug: string;
+}> = ({ video, onDelete, categorySlug, organizationSlug, chapterSlug }) => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
   const previewRef = React.useRef<HTMLVideoElement>(null);
@@ -679,7 +680,7 @@ const VideoCard: React.FC<{
   const handleCardClick = () => {
     if (video.status === 'COMPLETED' && video.file_id) {
       const videoSlug = slugify(video.title);
-      navigate(`/${categorySlug}/${organizationSlug}/${videoSlug}`, { state: { videoId: video.id } });
+      navigate(`/${categorySlug}/${organizationSlug}/${chapterSlug}/${videoSlug}`, { state: { videoId: video.id } });
     }
   };
 
@@ -712,6 +713,7 @@ const VideoCard: React.FC<{
             muted
             loop
             playsInline
+            crossOrigin="use-credentials"
           />
         )}
 
@@ -722,7 +724,9 @@ const VideoCard: React.FC<{
                 <Play size={48} />
               </div>
             )}
-            <div className="video-card-duration">{formatDuration(video.duration)}</div>
+            <div className="video-card-duration">
+              {video.duration != null && video.duration > 0 ? formatDuration(video.duration) : '--:--'}
+            </div>
           </>
         ) : (
           <div className="video-card-status-overlay">
@@ -771,12 +775,13 @@ const VideoCard: React.FC<{
 // MAIN COMPONENT
 // =============================================================================
 const OrganizationVideosPage: React.FC = () => {
-  const { categorySlug, organizationSlug } = useParams<{ categorySlug: string; organizationSlug: string }>();
+  const { categorySlug, organizationSlug, chapterSlug } = useParams<{ categorySlug: string; organizationSlug: string; chapterSlug: string }>();
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
 
   const [organization, setOrganization] = useState<Organization>({ id: 0, name: '', credential_count: 0 });
   const [category, setCategory] = useState<Category>({ id: 0, name: '' });
+  const [chapter, setChapter] = useState<{ id: number; name: string }>({ id: 0, name: '' });
   const [videos, setVideos] = useState<Video[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
@@ -790,19 +795,18 @@ const OrganizationVideosPage: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-  }, [categorySlug, organizationSlug]);
+  }, [categorySlug, organizationSlug, chapterSlug]);
 
   useEffect(() => {
     const interval = setInterval(() => {
       if (!document.hidden) fetchVideos();
     }, 5000);
     return () => clearInterval(interval);
-  }, [organization.id]);
+  }, [chapter.id]);
 
   const fetchData = async () => {
     try {
       setIsLoading(true);
-      // Fetch all organizations and categories to find by slug
       const [categoriesResponse, organizationsResponse] = await Promise.all([
         axiosInstance.get('/api/vault/categories/'),
         axiosInstance.get('/api/vault/organizations/')
@@ -824,7 +828,20 @@ const OrganizationVideosPage: React.FC = () => {
       setCategory(foundCategory);
       setOrganization(foundOrganization);
 
-      const videosResponse = await axiosInstance.get(`${API_ENDPOINTS.VIDEOS.LIST}?organization=${foundOrganization.id}`);
+      // Fetch chapters for this org and find by slug
+      const chaptersRes = await axiosInstance.get(`/api/vault/chapters/?organization=${foundOrganization.id}`);
+      const foundChapter = chaptersRes.data.find(
+        (ch: any) => slugify(ch.name) === chapterSlug
+      );
+
+      if (!foundChapter) {
+        navigate(`/${categorySlug}/${organizationSlug}`);
+        return;
+      }
+
+      setChapter(foundChapter);
+
+      const videosResponse = await axiosInstance.get(`${API_ENDPOINTS.VIDEOS.LIST}?chapter=${foundChapter.id}`);
       setVideos(videosResponse.data);
     } catch (error) {
       console.error('Failed to fetch data:', error);
@@ -835,9 +852,9 @@ const OrganizationVideosPage: React.FC = () => {
   };
 
   const fetchVideos = async () => {
-    if (!organization.id) return;
+    if (!chapter.id) return;
     try {
-      const response = await axiosInstance.get(`${API_ENDPOINTS.VIDEOS.LIST}?organization=${organization.id}`);
+      const response = await axiosInstance.get(`${API_ENDPOINTS.VIDEOS.LIST}?chapter=${chapter.id}`);
       setVideos(response.data);
     } catch (error) {
       console.error('Failed to fetch videos:', error);
@@ -868,6 +885,7 @@ const OrganizationVideosPage: React.FC = () => {
         formData.append('filename', file.name);
         formData.append('organization', organization.id.toString());
         formData.append('category', category.id.toString());
+        if (chapter.id) formData.append('chapter', chapter.id.toString());
 
         const chunkWeight = 1 / totalChunks;
 
@@ -892,7 +910,8 @@ const OrganizationVideosPage: React.FC = () => {
         filename: file.name,
         total_chunks: totalChunks,
         organization: organization.id,
-        category: category.id
+        category: category.id,
+        chapter: chapter.id || undefined,
       });
 
       setUploadProgress(100);
@@ -939,12 +958,18 @@ const OrganizationVideosPage: React.FC = () => {
     setSyncMessage(null);
     
     try {
-      const response = await axiosInstance.post('/api/videos/sync/', {
-        organization_id: organization.id
+      const response = await axiosInstance.post(API_ENDPOINTS.VIDEOS.SYNC, {
+        organization_id: organization.id,
+        chapter_id: chapter.id || undefined,
       });
       
-      setSyncMessage(response.data.message);
-      await fetchVideos();
+      const { message, synced = 0, deleted = 0 } = response.data;
+      setSyncMessage(message);
+
+      // Refresh the video list whenever anything changed
+      if (synced > 0 || deleted > 0) {
+        await fetchVideos();
+      }
       
       // Clear message after 5 seconds
       setTimeout(() => setSyncMessage(null), 5000);
@@ -975,21 +1000,31 @@ const OrganizationVideosPage: React.FC = () => {
       <Navbar theme={theme} onThemeToggle={toggleTheme} />
 
       <main className="org-videos-main">
+        {/* Breadcrumb */}
+        <nav className="org-breadcrumb">
+          <span className="org-breadcrumb-item" onClick={() => navigate('/home')}>{category.name}</span>
+          <span className="org-breadcrumb-sep">›</span>
+          <span className="org-breadcrumb-item" onClick={() => navigate(`/${categorySlug}/${organizationSlug}`)}>{organization.name}</span>
+          <span className="org-breadcrumb-sep">›</span>
+          <span className="org-breadcrumb-current">{chapter.name}</span>
+        </nav>
+
         {/* Header */}
         <div className="org-videos-header">
-          <button onClick={() => navigate('/home')} className="org-back-btn">
-            <ArrowLeft size={20} />
-            Back to Home
-          </button>
-          
-          <div className="org-info-header">
-            {organization.logo_url && (
-              <img src={organization.logo_url} alt="" className="org-logo-large" />
-            )}
-            <div>
-              <p className="org-category-label">{category.name}</p>
-              <h1 className="org-name-large">{organization.name}</h1>
-              <p className="org-video-count">{videos.length} video{videos.length !== 1 ? 's' : ''}</p>
+          <div className="org-header-left">
+            <button onClick={() => navigate(`/${categorySlug}/${organizationSlug}`)} className="org-back-btn">
+              <ArrowLeft size={20} />
+              <span className="org-back-btn-text">Back</span>
+            </button>
+            
+            <div className="org-info-header">
+              {organization.logo_url && (
+                <img src={organization.logo_url} alt="" className="org-logo-large" />
+              )}
+              <div className="org-info-text">
+                <h1 className="org-name-large">{chapter.name}</h1>
+                <p className="org-video-count">{videos.length} video{videos.length !== 1 ? 's' : ''}</p>
+              </div>
             </div>
           </div>
 
@@ -1001,17 +1036,17 @@ const OrganizationVideosPage: React.FC = () => {
               title="Sync videos from Google Drive"
             >
               <RefreshCw size={20} className={isSyncing ? 'spin-animation' : ''} />
-              {isSyncing ? 'Syncing...' : 'Sync from Drive'}
+              <span className="org-btn-text">{isSyncing ? 'Syncing...' : 'Sync'}</span>
             </button>
             
             <button className="org-upload-btn" onClick={() => setShowUploadModal(true)}>
               <Upload size={20} />
-              Upload Video
+              <span className="org-btn-text">Upload</span>
             </button>
             
             <button className="org-upload-btn org-telegram-btn" onClick={() => setShowTelegramModal(true)}>
               <Send size={20} />
-              Upload from Telegram
+              <span className="org-btn-text">Telegram</span>
             </button>
           </div>
         </div>
@@ -1043,6 +1078,7 @@ const OrganizationVideosPage: React.FC = () => {
                 onDelete={handleDelete}
                 categorySlug={categorySlug!}
                 organizationSlug={organizationSlug!}
+                chapterSlug={chapterSlug!}
               />
             ))}
           </div>

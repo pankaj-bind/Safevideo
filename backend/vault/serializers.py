@@ -1,15 +1,44 @@
 from rest_framework import serializers
-from .models import Category, Organization
+from .models import Category, Organization, Chapter
+
+
+class ChapterSerializer(serializers.ModelSerializer):
+    video_count = serializers.IntegerField(read_only=True, default=0)
+
+    class Meta:
+        model = Chapter
+        fields = ['id', 'name', 'video_count', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
+
+
+class ChapterCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Chapter
+        fields = ['organization', 'name']
+
+    def validate(self, data):
+        organization = data.get('organization')
+        name = data.get('name')
+
+        user = self.context['request'].user
+        if organization.category.user != user:
+            raise serializers.ValidationError("You don't have permission to add chapters to this organization.")
+
+        if Chapter.objects.filter(organization=organization, name=name).exists():
+            raise serializers.ValidationError("A chapter with this name already exists in this organization.")
+
+        return data
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
     logo_url = serializers.SerializerMethodField()
     video_count = serializers.IntegerField(read_only=True, default=0)
+    chapter_count = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
         model = Organization
-        fields = ['id', 'name', 'logo', 'logo_url', 'credential_count', 'video_count', 'created_at', 'updated_at']
-        read_only_fields = ['credential_count', 'video_count', 'created_at', 'updated_at']
+        fields = ['id', 'name', 'logo', 'logo_url', 'credential_count', 'video_count', 'chapter_count', 'created_at', 'updated_at']
+        read_only_fields = ['credential_count', 'video_count', 'chapter_count', 'created_at', 'updated_at']
 
     def get_logo_url(self, obj):
         if obj.logo:

@@ -302,7 +302,18 @@ const DashboardPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="sv-cell-muted">{getCategoryLabel(v.folder_path)}</td>
-                      <td className="sv-cell-muted">—</td>
+                      <td className="sv-cell-muted">
+                        {v.duration != null && v.duration > 0
+                          ? (() => {
+                              const h = Math.floor(v.duration! / 3600);
+                              const m = Math.floor((v.duration! % 3600) / 60);
+                              const s = Math.floor(v.duration! % 60);
+                              return h > 0
+                                ? `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+                                : `${m}:${s.toString().padStart(2, '0')}`;
+                            })()
+                          : '—'}
+                      </td>
                       <td className="sv-cell-muted" title={v.created_at}>
                         {formatUploadedAt(v.created_at)}
                       </td>

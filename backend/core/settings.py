@@ -126,6 +126,14 @@ CORS_ALLOWED_ORIGINS = [
 
 CORS_ALLOW_CREDENTIALS = True  # Required for cookies to be sent cross-origin
 
+# Expose headers needed for video Range streaming
+CORS_EXPOSE_HEADERS = [
+    'Content-Range',
+    'Accept-Ranges',
+    'Content-Length',
+    'Content-Type',
+]
+
 # CSRF Trusted Origins - Required for Login/Signup in Docker
 CSRF_TRUSTED_ORIGINS = [
     'http://localhost',

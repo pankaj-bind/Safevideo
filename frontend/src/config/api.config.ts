@@ -24,6 +24,7 @@ export const API_ENDPOINTS = {
   VAULT: {
     CATEGORIES: '/api/vault/categories/',
     ORGANIZATIONS: '/api/vault/organizations/',
+    CHAPTERS: '/api/vault/chapters/',
   },
   TELEGRAM: {
     CONFIG: '/api/telegram/config/',
