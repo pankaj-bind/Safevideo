@@ -28,20 +28,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_WORKERS = max(1, min(4, (os.cpu_count() or 2) // 2))
 MAX_WORKERS = int(os.environ.get('VIDEO_PROCESSING_WORKERS', DEFAULT_MAX_WORKERS))
 PROCESSING_EXECUTOR = ThreadPoolExecutor(max_workers=MAX_WORKERS)
-_EXECUTOR_LOCK = threading.Lock()
 PROCESS_REGISTRY = {}
 PROCESS_REGISTRY_LOCK = threading.Lock()
-
-
-def _get_executor():
-    """Return the global executor, recreating it if it was shut down."""
-    global PROCESSING_EXECUTOR
-    if PROCESSING_EXECUTOR._shutdown:
-        with _EXECUTOR_LOCK:
-            # Double-check inside the lock
-            if PROCESSING_EXECUTOR._shutdown:
-                PROCESSING_EXECUTOR = ThreadPoolExecutor(max_workers=MAX_WORKERS)
-    return PROCESSING_EXECUTOR
 
 
 def register_processing(video_id, process, temp_file_path, output_path, cancel_event):
@@ -334,6 +322,30 @@ class DriveService:
 
         return current_parent
 
+    def rename_file(self, file_id, new_name):
+        """Rename a file on Google Drive."""
+        try:
+            self.service.files().update(
+                fileId=file_id,
+                body={'name': new_name},
+                fields='id,name'
+            ).execute()
+        except Exception as e:
+            logger.error(f"Error renaming file {file_id}: {e}")
+            raise
+
+    def rename_folder(self, folder_id, new_name):
+        """Rename a folder on Google Drive."""
+        try:
+            self.service.files().update(
+                fileId=folder_id,
+                body={'name': new_name},
+                fields='id,name'
+            ).execute()
+        except Exception as e:
+            logger.error(f"Error renaming folder {folder_id}: {e}")
+            raise
+
     def delete_file(self, file_id):
         try:
             self.service.files().delete(fileId=file_id).execute()
@@ -361,46 +373,39 @@ class DriveService:
             logger.error(f"Error listing folder contents: {e}")
             return []
 
-    def list_folder_files(self, folder_path, folder_id=None):
+    def list_folder_files(self, folder_path):
         """List all video files in a specific Google Drive folder path.
         
         Supports both:
         - Loose video files directly in the org folder (legacy/manual uploads)
         - Video subfolders (new structure: VideoName/video.mp4 + thumbnail + preview)
         
-        Args:
-            folder_path: Slash-separated path (e.g., "Gate/Digital Logic/MyVideo")
-            folder_id: Optional pre-resolved folder ID to skip path traversal.
-        
         Returns:
             List of dicts: {id, name, size, mimeType, createdTime, drive_folder_id?,
                             thumbnail_id?, preview_id?}
         """
         try:
-            if folder_id:
-                parent_folder_id = folder_id
-            else:
-                parent_folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
+            parent_folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
             
-                if not parent_folder_id:
-                    raise Exception("GOOGLE_DRIVE_FOLDER_ID not configured")
+            if not parent_folder_id:
+                raise Exception("GOOGLE_DRIVE_FOLDER_ID not configured")
             
-                # Navigate to the target folder
-                if folder_path:
-                    folder_names = folder_path.split('/')
-                    current_parent = parent_folder_id
+            # Navigate to the target folder
+            if folder_path:
+                folder_names = folder_path.split('/')
+                current_parent = parent_folder_id
                 
-                    for folder_name in folder_names:
-                        query = f"name='{folder_name}' and '{current_parent}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-                        results = self.service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
-                        folders = results.get('files', [])
+                for folder_name in folder_names:
+                    query = f"name='{folder_name}' and '{current_parent}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+                    results = self.service.files().list(q=query, spaces='drive', fields='files(id, name)').execute()
+                    folders = results.get('files', [])
                     
-                        if not folders:
-                            return []
+                    if not folders:
+                        return []
                     
-                        current_parent = folders[0]['id']
+                    current_parent = folders[0]['id']
                 
-                    parent_folder_id = current_parent
+                parent_folder_id = current_parent
             
             all_videos = []
             
@@ -769,7 +774,7 @@ def process_video_background(video_id, temp_file_path, original_filename, folder
 
 def start_background_processing(video_id, temp_file_path, original_filename, folder_path=None):
     """Submit processing to the shared worker pool for parallel execution."""
-    _get_executor().submit(
+    PROCESSING_EXECUTOR.submit(
         process_video_background,
         video_id,
         temp_file_path,
@@ -881,4 +886,4 @@ def generate_sync_metadata(video_id):
 
 def start_sync_metadata(video_id):
     """Submit metadata generation to the shared worker pool."""
-    _get_executor().submit(generate_sync_metadata, video_id)
+    PROCESSING_EXECUTOR.submit(generate_sync_metadata, video_id)

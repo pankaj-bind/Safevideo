@@ -29,8 +29,12 @@ import {
   Archive,
   File,
   XCircle,
+  Pencil,
+  Check,
+  FilePlus,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import '../styles/pdf-reader.css';
 
 // =============================================================================
 // TYPES
@@ -62,6 +66,15 @@ interface Category {
   id: number;
   name: string;
   slug?: string;
+}
+
+interface PDFDoc {
+  id: number;
+  title: string;
+  file_id?: string | null;
+  file_size?: number | null;
+  stream_url?: string | null;
+  created_at: string;
 }
 
 // =============================================================================
@@ -611,15 +624,23 @@ const TelegramUploadModal: React.FC<{
 const VideoCard: React.FC<{
   video: Video;
   onDelete: (id: number) => void;
+  onRename: (id: number, newTitle: string) => Promise<void>;
   categorySlug: string;
   organizationSlug: string;
   chapterSlug: string;
-}> = ({ video, onDelete, categorySlug, organizationSlug, chapterSlug }) => {
+}> = ({ video, onDelete, onRename, categorySlug, organizationSlug, chapterSlug }) => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(video.title);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const renameInputRef = React.useRef<HTMLInputElement>(null);
   const previewRef = React.useRef<HTMLVideoElement>(null);
   const hoverTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigate = useNavigate();
+
+  React.useEffect(() => { setEditTitle(video.title); }, [video.title]);
+  React.useEffect(() => { if (isEditing) renameInputRef.current?.focus(); }, [isEditing]);
 
   const getStatusConfig = (status: VideoStatus) => {
     switch (status) {
@@ -745,7 +766,52 @@ const VideoCard: React.FC<{
       </div>
       
       <div className="video-card-info">
-        <h3 className="video-card-title">{video.title}</h3>
+        {isEditing ? (
+          <div className="video-card-rename" onClick={(e) => e.stopPropagation()}>
+            <input
+              ref={renameInputRef}
+              className="video-card-rename-input"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onKeyDown={async (e) => {
+                if (e.key === 'Enter' && editTitle.trim()) {
+                  setIsRenaming(true);
+                  await onRename(video.id, editTitle.trim());
+                  setIsEditing(false);
+                  setIsRenaming(false);
+                } else if (e.key === 'Escape') {
+                  setEditTitle(video.title);
+                  setIsEditing(false);
+                }
+              }}
+              disabled={isRenaming}
+            />
+            <button
+              className="video-card-rename-confirm"
+              disabled={isRenaming || !editTitle.trim()}
+              onClick={async (e) => {
+                e.stopPropagation();
+                setIsRenaming(true);
+                await onRename(video.id, editTitle.trim());
+                setIsEditing(false);
+                setIsRenaming(false);
+              }}
+            >
+              {isRenaming ? <Loader2 size={14} className="spin-animation" /> : <Check size={14} />}
+            </button>
+          </div>
+        ) : (
+          <div className="video-card-title-row">
+            <h3 className="video-card-title">{video.title}</h3>
+            <button
+              className="video-card-edit-btn"
+              onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
+              title="Rename video"
+            >
+              <Pencil size={13} />
+            </button>
+          </div>
+        )}
         <div className="video-card-meta">
           <span className={`video-card-badge ${statusConfig.bg}`}>
             <statusConfig.icon size={12} className={statusConfig.color} />
@@ -792,6 +858,9 @@ const OrganizationVideosPage: React.FC = () => {
   const [showTelegramModal, setShowTelegramModal] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [pdfs, setPdfs] = useState<PDFDoc[]>([]);
+  const [isUploadingPdf, setIsUploadingPdf] = useState(false);
+  const pdfInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchData();
@@ -843,6 +912,12 @@ const OrganizationVideosPage: React.FC = () => {
 
       const videosResponse = await axiosInstance.get(`${API_ENDPOINTS.VIDEOS.LIST}?chapter=${foundChapter.id}`);
       setVideos(videosResponse.data);
+
+      // Fetch PDFs for this chapter
+      try {
+        const pdfsRes = await axiosInstance.get(`${API_ENDPOINTS.PDFS.LIST}?chapter=${foundChapter.id}`);
+        setPdfs(pdfsRes.data);
+      } catch { /* ignore */ }
     } catch (error) {
       console.error('Failed to fetch data:', error);
       navigate('/home');
@@ -856,6 +931,9 @@ const OrganizationVideosPage: React.FC = () => {
     try {
       const response = await axiosInstance.get(`${API_ENDPOINTS.VIDEOS.LIST}?chapter=${chapter.id}`);
       setVideos(response.data);
+      // Also refresh PDFs
+      const pdfsRes = await axiosInstance.get(`${API_ENDPOINTS.PDFS.LIST}?chapter=${chapter.id}`);
+      setPdfs(pdfsRes.data);
     } catch (error) {
       console.error('Failed to fetch videos:', error);
     }
@@ -951,6 +1029,57 @@ const OrganizationVideosPage: React.FC = () => {
     }
   };
 
+  const handleRename = async (videoId: number, newTitle: string) => {
+    try {
+      const res = await axiosInstance.patch(API_ENDPOINTS.VIDEOS.RENAME(videoId), { title: newTitle });
+      setVideos((prev) => prev.map((v) => v.id === videoId ? { ...v, title: res.data.title } : v));
+    } catch (error) {
+      console.error('Rename failed:', error);
+    }
+  };
+
+  const handlePdfUpload = async (file: File) => {
+    if (!file || file.type !== 'application/pdf') return;
+    setIsUploadingPdf(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('title', file.name);
+      formData.append('category', category.id.toString());
+      formData.append('organization', organization.id.toString());
+      if (chapter.id) formData.append('chapter', chapter.id.toString());
+
+      await axiosInstance.post(API_ENDPOINTS.PDFS.UPLOAD, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 300_000,
+      });
+      await fetchPdfs();
+    } catch (error) {
+      console.error('PDF upload failed:', error);
+    } finally {
+      setIsUploadingPdf(false);
+    }
+  };
+
+  const fetchPdfs = async () => {
+    if (!chapter.id) return;
+    try {
+      const res = await axiosInstance.get(`${API_ENDPOINTS.PDFS.LIST}?chapter=${chapter.id}`);
+      setPdfs(res.data);
+    } catch (error) {
+      console.error('Failed to fetch PDFs:', error);
+    }
+  };
+
+  const handleDeletePdf = async (pdfId: number) => {
+    try {
+      await axiosInstance.delete(API_ENDPOINTS.PDFS.DELETE(pdfId));
+      setPdfs((prev) => prev.filter((p) => p.id !== pdfId));
+    } catch (error) {
+      console.error('Failed to delete PDF:', error);
+    }
+  };
+
   const handleSync = async () => {
     if (!organization.id) return;
     
@@ -1023,7 +1152,7 @@ const OrganizationVideosPage: React.FC = () => {
               )}
               <div className="org-info-text">
                 <h1 className="org-name-large">{chapter.name}</h1>
-                <p className="org-video-count">{videos.length} video{videos.length !== 1 ? 's' : ''}</p>
+                <p className="org-video-count">{videos.length} video{videos.length !== 1 ? 's' : ''}{pdfs.length > 0 ? ` · ${pdfs.length} PDF${pdfs.length !== 1 ? 's' : ''}` : ''}</p>
               </div>
             </div>
           </div>
@@ -1048,6 +1177,22 @@ const OrganizationVideosPage: React.FC = () => {
               <Send size={20} />
               <span className="org-btn-text">Telegram</span>
             </button>
+
+            <button
+              className="org-upload-btn org-pdf-btn"
+              onClick={() => pdfInputRef.current?.click()}
+              disabled={isUploadingPdf}
+            >
+              {isUploadingPdf ? <Loader2 size={20} className="spin-animation" /> : <FilePlus size={20} />}
+              <span className="org-btn-text">{isUploadingPdf ? 'Uploading…' : 'PDF'}</span>
+            </button>
+            <input
+              ref={pdfInputRef}
+              type="file"
+              accept="application/pdf"
+              style={{ display: 'none' }}
+              onChange={(e) => { if (e.target.files?.[0]) handlePdfUpload(e.target.files[0]); e.target.value = ''; }}
+            />
           </div>
         </div>
 
@@ -1059,23 +1204,70 @@ const OrganizationVideosPage: React.FC = () => {
         )}
 
         {/* Videos Grid */}
-        {videos.length === 0 ? (
+        {videos.length === 0 && pdfs.length === 0 ? (
           <div className="org-videos-empty">
             <Play size={64} />
-            <h2>No videos yet</h2>
-            <p>Upload your first video to get started</p>
-            <button className="org-upload-btn-large" onClick={() => setShowUploadModal(true)}>
-              <Upload size={20} />
-              Upload Video
-            </button>
+            <h2>No content yet</h2>
+            <p>Upload your first video or PDF to get started</p>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button className="org-upload-btn-large" onClick={() => setShowUploadModal(true)}>
+                <Upload size={20} />
+                Upload Video
+              </button>
+              <button className="org-upload-btn-large" onClick={() => pdfInputRef.current?.click()}>
+                <FilePlus size={20} />
+                Upload PDF
+              </button>
+            </div>
           </div>
         ) : (
           <div className="org-videos-grid">
+            {/* PDF Cards */}
+            {pdfs.map((pdf) => (
+              <div
+                key={`pdf-${pdf.id}`}
+                className="video-card video-card--playable pdf-card"
+                onClick={() => navigate(`/${categorySlug}/${organizationSlug}/${chapterSlug}/pdf/${pdf.id}`, { state: { pdfId: pdf.id } })}
+              >
+                <div className="video-card-thumbnail pdf-card-thumbnail">
+                  <div className="pdf-card-icon">
+                    <FileText size={48} />
+                  </div>
+                  {pdf.file_size && (
+                    <div className="video-card-duration">
+                      {(pdf.file_size / (1024 * 1024)).toFixed(1)} MB
+                    </div>
+                  )}
+                </div>
+                <div className="video-card-info">
+                  <h3 className="video-card-title">{pdf.title}</h3>
+                  <div className="video-card-meta">
+                    <span className="video-card-badge bg-blue-light">
+                      <FileText size={12} className="text-blue" />
+                      PDF
+                    </span>
+                    <span className="video-card-date">
+                      {formatDistanceToNow(new Date(pdf.created_at), { addSuffix: true })}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  className="video-card-delete"
+                  onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete "${pdf.title}"?`)) handleDeletePdf(pdf.id); }}
+                  title="Delete PDF"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+
+            {/* Video Cards */}
             {videos.map((video) => (
               <VideoCard
                 key={video.id}
                 video={video}
                 onDelete={handleDelete}
+                onRename={handleRename}
                 categorySlug={categorySlug!}
                 organizationSlug={organizationSlug!}
                 chapterSlug={chapterSlug!}

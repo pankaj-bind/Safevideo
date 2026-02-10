@@ -33,3 +33,47 @@ class Video(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.status})"
+
+
+class PDFDocument(models.Model):
+    """PDF file stored on Google Drive, belonging to an organization/chapter."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='pdfs')
+    category = models.ForeignKey('vault.Category', on_delete=models.CASCADE, related_name='pdfs', null=True, blank=True)
+    organization = models.ForeignKey('vault.Organization', on_delete=models.CASCADE, related_name='pdfs', null=True, blank=True)
+    chapter = models.ForeignKey('vault.Chapter', on_delete=models.CASCADE, related_name='pdfs', null=True, blank=True)
+    title = models.CharField(max_length=255)
+    file_id = models.CharField(max_length=255, blank=True, null=True, help_text="Google Drive File ID")
+    drive_folder_id = models.CharField(max_length=255, blank=True, null=True, help_text="Google Drive Folder ID")
+    folder_path = models.CharField(max_length=500, blank=True, null=True)
+    file_size = models.BigIntegerField(null=True, blank=True)
+    page_count = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.title
+
+
+class PDFAnnotation(models.Model):
+    """Annotation on a PDF page — highlights, notes, drawings, shapes, text."""
+    ANNOTATION_TYPES = [
+        ('highlight', 'Highlight'),
+        ('note', 'Sticky Note'),
+        ('drawing', 'Freehand Drawing'),
+        ('text', 'Text'),
+        ('shape', 'Shape'),
+    ]
+
+    pdf = models.ForeignKey(PDFDocument, on_delete=models.CASCADE, related_name='annotations')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='pdf_annotations')
+    page = models.IntegerField(help_text="1-based page number")
+    annotation_type = models.CharField(max_length=20, choices=ANNOTATION_TYPES)
+    data = models.JSONField(help_text="Annotation data (position, text, color, paths, etc.)")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['page', 'created_at']
+
+    def __str__(self):
+        return f"{self.annotation_type} on page {self.page} of {self.pdf.title}"

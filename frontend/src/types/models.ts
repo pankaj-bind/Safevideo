@@ -52,3 +52,26 @@ export interface Note {
   timestamp?: number;
   createdAt: string;
 }
+
+export interface PDFDocument {
+  id: number;
+  title: string;
+  file_id?: string | null;
+  file_size?: number | null;
+  page_count?: number | null;
+  folder_path?: string | null;
+  chapter_id?: number | null;
+  organization_id?: number | null;
+  stream_url?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PDFAnnotation {
+  id: number;
+  page: number;
+  annotation_type: 'highlight' | 'note' | 'drawing' | 'text' | 'shape';
+  data: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}

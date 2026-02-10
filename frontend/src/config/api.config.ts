@@ -19,7 +19,17 @@ export const API_ENDPOINTS = {
     STREAM: (id: string) => `/api/videos/stream/${id}/`,
     ABORT: (id: number) => `/api/videos/${id}/abort/`,
     DELETE: (id: number) => `/api/videos/${id}/`,
+    RENAME: (id: number) => `/api/videos/${id}/rename/`,
     SYNC: '/api/videos/sync/',
+  },
+  PDFS: {
+    UPLOAD: '/api/videos/pdfs/upload/',
+    LIST: '/api/videos/pdfs/list/',
+    DETAIL: (id: number) => `/api/videos/pdfs/${id}/`,
+    DELETE: (id: number) => `/api/videos/pdfs/${id}/delete/`,
+    STREAM: (fileId: string) => `/api/videos/pdfs/stream/${fileId}/`,
+    ANNOTATIONS: (pdfId: number) => `/api/videos/pdfs/${pdfId}/annotations/`,
+    ANNOTATION_DETAIL: (id: number) => `/api/videos/pdfs/annotations/${id}/`,
   },
   VAULT: {
     CATEGORIES: '/api/vault/categories/',

@@ -19,6 +19,7 @@ const OrganizationDetailPage = React.lazy(() => import('./pages/OrganizationDeta
 const WatchPage = React.lazy(() => import('./pages/WatchPage'));
 const SchedulePage = React.lazy(() => import('./pages/SchedulePage'));
 const ProfilePage = React.lazy(() => import('./pages/ProfilePage'));
+const PDFReaderPage = React.lazy(() => import('./pages/PDFReaderPage'));
 
 const App: React.FC = () => {
   return (
@@ -43,6 +44,7 @@ const App: React.FC = () => {
               <Route path="/watch/:videoId" element={<ProtectedLayout><WatchPage /></ProtectedLayout>} />
               <Route path="/:categorySlug/:organizationSlug" element={<ProtectedLayout><ChaptersPage /></ProtectedLayout>} />
               <Route path="/:categorySlug/:organizationSlug/:chapterSlug" element={<ProtectedLayout><OrganizationVideosPage /></ProtectedLayout>} />
+              <Route path="/:categorySlug/:organizationSlug/:chapterSlug/pdf/:pdfId" element={<ProtectedLayout><PDFReaderPage /></ProtectedLayout>} />
               <Route path="/:categorySlug/:organizationSlug/:chapterSlug/:videoSlug" element={<ProtectedLayout><OrganizationDetailPage /></ProtectedLayout>} />
 
               <Route path="/category/:categoryId/organization/:organizationId" element={<Navigate to="/home" replace />} />

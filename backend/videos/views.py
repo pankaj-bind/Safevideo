@@ -7,6 +7,7 @@ from django.http import StreamingHttpResponse
 from django.core.cache import cache
 from .models import Video
 from .services import start_background_processing, DriveService, cancel_processing, start_sync_metadata
+from .models import PDFDocument, PDFAnnotation
 import tempfile
 import os
 import hashlib
@@ -319,6 +320,45 @@ class StreamVideoView(APIView):
             logger.error(f"Stream error: {e}")
             return Response({'error': 'Failed to stream video'}, status=status.HTTP_404_NOT_FOUND)
 
+class VideoRenameView(APIView):
+    """Rename a video title in DB and on Google Drive."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, pk):
+        try:
+            new_title = request.data.get('title', '').strip()
+            if not new_title:
+                return Response({'error': 'Title is required'}, status=status.HTTP_400_BAD_REQUEST)
+            if len(new_title) > 255:
+                return Response({'error': 'Title must be 255 characters or less'}, status=status.HTTP_400_BAD_REQUEST)
+
+            video = Video.objects.get(id=pk, user=request.user)
+            old_title = video.title
+
+            # Rename on Google Drive
+            try:
+                drive = DriveService()
+                # Rename the Drive subfolder if it exists
+                if video.drive_folder_id:
+                    new_folder_name = os.path.splitext(new_title)[0]
+                    drive.rename_folder(video.drive_folder_id, new_folder_name)
+                # Rename the video file itself on Drive
+                if video.file_id:
+                    drive.rename_file(video.file_id, f'Processed_{new_title}')
+            except Exception as e:
+                logger.warning(f"Drive rename failed for video {pk}: {e} — updating DB only")
+
+            video.title = new_title
+            video.save(update_fields=['title', 'updated_at'])
+
+            return Response(_build_video_dict(video, request), status=status.HTTP_200_OK)
+        except Video.DoesNotExist:
+            return Response({'error': 'Video not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Rename error: {e}")
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class VideoDeleteView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     def delete(self, request, pk):
@@ -426,26 +466,34 @@ class SyncDriveVideosView(APIView):
             drive_service = DriveService()
 
             # =================================================================
-            # Phase 1 – Ensure the Drive folder hierarchy exists
+            # Phase 1 – Check if the Drive folder itself still exists
             # =================================================================
-            # Use get_or_create_folder so that:
-            #   a) brand-new chapters get their Drive folder created automatically
-            #   b) manually created Drive structures are navigated correctly
-            # If a segment is missing it will be created rather than treating it
-            # as a "deleted" folder.
-            try:
-                drive_folder_id = drive_service.get_or_create_folder(folder_path)
-            except Exception as e:
-                logger.error(f"Sync: cannot reach Drive folder '{folder_path}': {e}")
-                return Response(
-                    {'error': f'Cannot access Google Drive folder: {e}'},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+            drive_folder_id = drive_service.folder_exists_in_path(folder_path)
+
+            if drive_folder_id is None:
+                # The entire folder was deleted from Drive → purge all videos
+                purge_filter = {
+                    'organization': organization,
+                    'user': request.user,
+                }
+                if chapter:
+                    purge_filter['chapter'] = chapter
+
+                deleted_qs = Video.objects.filter(**purge_filter)
+                deleted_count = deleted_qs.count()
+                deleted_qs.delete()
+
+                return Response({
+                    'message': f'Drive folder no longer exists. Removed {deleted_count} video(s) from the app.',
+                    'synced': 0,
+                    'deleted': deleted_count,
+                    'total': 0,
+                }, status=status.HTTP_200_OK)
 
             # =================================================================
             # Phase 2 – List current Drive contents
             # =================================================================
-            drive_files = drive_service.list_folder_files(folder_path, folder_id=drive_folder_id)
+            drive_files = drive_service.list_folder_files(folder_path)
             drive_file_ids = {f.get('id') for f in drive_files if f.get('id')}
             # Also collect subfolder (drive_folder) IDs for videos stored in subfolders
             drive_subfolder_ids = {
@@ -592,4 +640,306 @@ class SyncDriveVideosView(APIView):
         except Exception as e:
             logger.error(f"Sync error: {e}")
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# =============================================================================
+# PDF VIEWS
+# =============================================================================
+
+def _build_pdf_dict(pdf, request):
+    """Build a serializable dict for a PDFDocument instance."""
+    stream_url = None
+    if pdf.file_id:
+        stream_url = request.build_absolute_uri(f'/api/videos/pdfs/stream/{pdf.file_id}/')
+    return {
+        'id': pdf.id,
+        'title': pdf.title,
+        'file_id': pdf.file_id,
+        'file_size': pdf.file_size,
+        'page_count': pdf.page_count,
+        'folder_path': pdf.folder_path,
+        'chapter_id': pdf.chapter_id,
+        'organization_id': pdf.organization_id,
+        'stream_url': stream_url,
+        'created_at': pdf.created_at,
+        'updated_at': pdf.updated_at,
+    }
+
+
+class PDFUploadView(APIView):
+    """Upload a PDF file to Google Drive."""
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
+
+    MAX_PDF_SIZE = 500 * 1024 * 1024  # 500 MB
+
+    def post(self, request):
+        try:
+            pdf_file = request.FILES.get('file')
+            if not pdf_file:
+                return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+            if not pdf_file.content_type == 'application/pdf':
+                return Response({'error': 'Only PDF files are allowed'}, status=status.HTTP_400_BAD_REQUEST)
+
+            if pdf_file.size > self.MAX_PDF_SIZE:
+                return Response(
+                    {'error': f'PDF exceeds maximum size of {self.MAX_PDF_SIZE // (1024**2)} MB'},
+                    status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+                )
+
+            title = request.data.get('title', pdf_file.name)
+            category_id = request.data.get('category')
+            organization_id = request.data.get('organization')
+            chapter_id = request.data.get('chapter')
+
+            # Build folder path
+            folder_path = None
+            if category_id and organization_id:
+                from vault.models import Category, Organization, Chapter
+                try:
+                    category = Category.objects.get(id=category_id, user=request.user)
+                    organization = Organization.objects.get(id=organization_id, category=category)
+                    if chapter_id:
+                        chapter = Chapter.objects.get(id=chapter_id, organization=organization)
+                        folder_path = f"{category.name}/{organization.name}/{chapter.name}"
+                    else:
+                        folder_path = f"{category.name}/{organization.name}"
+                except (Category.DoesNotExist, Organization.DoesNotExist, Chapter.DoesNotExist):
+                    pass
+
+            # Save PDF to temp file
+            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+                for chunk in pdf_file.chunks():
+                    tmp.write(chunk)
+                tmp_path = tmp.name
+
+            try:
+                # Upload to Google Drive
+                drive = DriveService()
+                pdf_folder_name = os.path.splitext(title)[0]
+                if folder_path:
+                    full_path = f"{folder_path}/{pdf_folder_name}"
+                else:
+                    full_path = pdf_folder_name
+
+                drive_folder_id = drive.get_or_create_folder(full_path)
+                file_id = drive.upload_to_folder(
+                    tmp_path, title, drive_folder_id,
+                    mime_override='application/pdf'
+                )
+
+                # Create DB record
+                pdf_doc = PDFDocument.objects.create(
+                    user=request.user,
+                    title=title,
+                    file_id=file_id,
+                    drive_folder_id=drive_folder_id,
+                    folder_path=folder_path,
+                    file_size=pdf_file.size,
+                    category_id=category_id if category_id else None,
+                    organization_id=organization_id if organization_id else None,
+                    chapter_id=chapter_id if chapter_id else None,
+                )
+
+                return Response(_build_pdf_dict(pdf_doc, request), status=status.HTTP_201_CREATED)
+
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+
+        except Exception as e:
+            logger.error(f"PDF Upload error: {e}")
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class PDFListView(APIView):
+    """List PDFs for the current user, filtered by organization/chapter."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        queryset = PDFDocument.objects.filter(user=request.user).order_by('-created_at')
+
+        organization_id = request.query_params.get('organization')
+        if organization_id:
+            queryset = queryset.filter(organization_id=organization_id)
+
+        chapter_id = request.query_params.get('chapter')
+        if chapter_id:
+            queryset = queryset.filter(chapter_id=chapter_id)
+
+        pdfs = [_build_pdf_dict(p, request) for p in queryset]
+        return Response(pdfs)
+
+
+class PDFDetailView(APIView):
+    """Get a single PDF by ID."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk):
+        try:
+            pdf = PDFDocument.objects.get(id=pk, user=request.user)
+            return Response(_build_pdf_dict(pdf, request))
+        except PDFDocument.DoesNotExist:
+            return Response({'error': 'PDF not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class PDFDeleteView(APIView):
+    """Delete a PDF and its Drive assets."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, pk):
+        try:
+            pdf = PDFDocument.objects.get(id=pk, user=request.user)
+            try:
+                drive = DriveService()
+                if pdf.drive_folder_id:
+                    drive.delete_folder(pdf.drive_folder_id)
+                elif pdf.file_id:
+                    drive.delete_file(pdf.file_id)
+            except Exception as e:
+                logger.warning(f"Failed to delete Drive assets for PDF {pk}: {e}")
+            pdf.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except PDFDocument.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+
+class StreamPDFView(APIView):
+    """Stream a PDF from Google Drive with Range support."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, file_id):
+        try:
+            pdf = PDFDocument.objects.filter(user=request.user, file_id=file_id).first()
+            if not pdf:
+                return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+            drive_service = DriveService()
+            file_size = pdf.file_size
+            if not file_size:
+                meta = drive_service.get_file_metadata(file_id)
+                file_size = meta['size']
+                if file_size:
+                    PDFDocument.objects.filter(id=pdf.id).update(file_size=file_size)
+
+            range_header = request.META.get('HTTP_RANGE', '').strip()
+
+            if range_header and file_size:
+                try:
+                    range_spec = range_header.replace('bytes=', '')
+                    parts = range_spec.split('-')
+                    start = int(parts[0]) if parts[0] else 0
+                    if parts[1]:
+                        end = int(parts[1])
+                    else:
+                        end = file_size - 1
+                    end = min(end, file_size - 1)
+                except (ValueError, IndexError):
+                    start = 0
+                    end = file_size - 1
+
+                content_length = end - start + 1
+                file_iterator = drive_service.get_file_range_iterator(file_id, start=start, end=end)
+                response = StreamingHttpResponse(file_iterator, status=206, content_type='application/pdf')
+                response['Content-Range'] = f'bytes {start}-{end}/{file_size}'
+                response['Content-Length'] = str(content_length)
+            else:
+                file_iterator = drive_service.get_file_iterator(file_id)
+                response = StreamingHttpResponse(file_iterator, content_type='application/pdf')
+                if file_size:
+                    response['Content-Length'] = str(file_size)
+
+            response['Accept-Ranges'] = 'bytes'
+            response['Content-Disposition'] = f'inline; filename="{pdf.title}"'
+            response['Cache-Control'] = 'private, max-age=3600'
+            return response
+        except Exception as e:
+            logger.error(f"PDF stream error: {e}")
+            return Response({'error': 'Failed to stream PDF'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class PDFAnnotationListView(APIView):
+    """List / create annotations for a PDF."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pdf_id):
+        try:
+            pdf = PDFDocument.objects.get(id=pdf_id, user=request.user)
+        except PDFDocument.DoesNotExist:
+            return Response({'error': 'PDF not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        page = request.query_params.get('page')
+        qs = PDFAnnotation.objects.filter(pdf=pdf, user=request.user)
+        if page:
+            qs = qs.filter(page=int(page))
+
+        annotations = list(qs.values('id', 'page', 'annotation_type', 'data', 'created_at', 'updated_at'))
+        return Response(annotations)
+
+    def post(self, request, pdf_id):
+        try:
+            pdf = PDFDocument.objects.get(id=pdf_id, user=request.user)
+        except PDFDocument.DoesNotExist:
+            return Response({'error': 'PDF not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        page = request.data.get('page')
+        annotation_type = request.data.get('annotation_type')
+        data = request.data.get('data')
+
+        if not all([page, annotation_type, data]):
+            return Response({'error': 'page, annotation_type, and data are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        annotation = PDFAnnotation.objects.create(
+            pdf=pdf,
+            user=request.user,
+            page=int(page),
+            annotation_type=annotation_type,
+            data=data,
+        )
+
+        return Response({
+            'id': annotation.id,
+            'page': annotation.page,
+            'annotation_type': annotation.annotation_type,
+            'data': annotation.data,
+            'created_at': annotation.created_at,
+            'updated_at': annotation.updated_at,
+        }, status=status.HTTP_201_CREATED)
+
+
+class PDFAnnotationDetailView(APIView):
+    """Update / delete a single annotation."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, pk):
+        try:
+            annotation = PDFAnnotation.objects.get(id=pk, user=request.user)
+        except PDFAnnotation.DoesNotExist:
+            return Response({'error': 'Annotation not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if 'data' in request.data:
+            annotation.data = request.data['data']
+        if 'page' in request.data:
+            annotation.page = int(request.data['page'])
+        if 'annotation_type' in request.data:
+            annotation.annotation_type = request.data['annotation_type']
+        annotation.save()
+
+        return Response({
+            'id': annotation.id,
+            'page': annotation.page,
+            'annotation_type': annotation.annotation_type,
+            'data': annotation.data,
+            'created_at': annotation.created_at,
+            'updated_at': annotation.updated_at,
+        })
+
+    def delete(self, request, pk):
+        try:
+            annotation = PDFAnnotation.objects.get(id=pk, user=request.user)
+            annotation.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except PDFAnnotation.DoesNotExist:
+            return Response({'error': 'Annotation not found'}, status=status.HTTP_404_NOT_FOUND)
 
