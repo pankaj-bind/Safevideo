@@ -426,34 +426,26 @@ class SyncDriveVideosView(APIView):
             drive_service = DriveService()
 
             # =================================================================
-            # Phase 1 – Check if the Drive folder itself still exists
+            # Phase 1 – Ensure the Drive folder hierarchy exists
             # =================================================================
-            drive_folder_id = drive_service.folder_exists_in_path(folder_path)
-
-            if drive_folder_id is None:
-                # The entire folder was deleted from Drive → purge all videos
-                purge_filter = {
-                    'organization': organization,
-                    'user': request.user,
-                }
-                if chapter:
-                    purge_filter['chapter'] = chapter
-
-                deleted_qs = Video.objects.filter(**purge_filter)
-                deleted_count = deleted_qs.count()
-                deleted_qs.delete()
-
-                return Response({
-                    'message': f'Drive folder no longer exists. Removed {deleted_count} video(s) from the app.',
-                    'synced': 0,
-                    'deleted': deleted_count,
-                    'total': 0,
-                }, status=status.HTTP_200_OK)
+            # Use get_or_create_folder so that:
+            #   a) brand-new chapters get their Drive folder created automatically
+            #   b) manually created Drive structures are navigated correctly
+            # If a segment is missing it will be created rather than treating it
+            # as a "deleted" folder.
+            try:
+                drive_folder_id = drive_service.get_or_create_folder(folder_path)
+            except Exception as e:
+                logger.error(f"Sync: cannot reach Drive folder '{folder_path}': {e}")
+                return Response(
+                    {'error': f'Cannot access Google Drive folder: {e}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
 
             # =================================================================
             # Phase 2 – List current Drive contents
             # =================================================================
-            drive_files = drive_service.list_folder_files(folder_path)
+            drive_files = drive_service.list_folder_files(folder_path, folder_id=drive_folder_id)
             drive_file_ids = {f.get('id') for f in drive_files if f.get('id')}
             # Also collect subfolder (drive_folder) IDs for videos stored in subfolders
             drive_subfolder_ids = {
