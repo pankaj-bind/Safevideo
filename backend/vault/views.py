@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
-from .models import Category, Organization, Chapter
+from .models import Category, Organization, Chapter, ChapterNote
 from .serializers import (
     CategorySerializer, 
     CategoryCreateSerializer,
@@ -12,6 +12,7 @@ from .serializers import (
     OrganizationCreateSerializer,
     ChapterSerializer,
     ChapterCreateSerializer,
+    ChapterNoteSerializer,
 )
 
 
@@ -129,7 +130,7 @@ class ChapterViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = Chapter.objects.filter(
             organization__category__user=self.request.user
-        ).annotate(video_count=Count('videos'))
+        ).select_related('note').annotate(video_count=Count('videos'))
         # Optionally filter by organization
         org_id = self.request.query_params.get('organization')
         if org_id:
@@ -149,3 +150,20 @@ class ChapterViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=['get', 'put', 'patch'], url_path='note')
+    def note(self, request, pk=None):
+        """Get or update the note for a specific chapter"""
+        chapter = self.get_object()
+
+        if request.method == 'GET':
+            note, _ = ChapterNote.objects.get_or_create(chapter=chapter)
+            serializer = ChapterNoteSerializer(note)
+            return Response(serializer.data)
+
+        # PUT / PATCH
+        note, _ = ChapterNote.objects.get_or_create(chapter=chapter)
+        serializer = ChapterNoteSerializer(note, data=request.data, partial=request.method == 'PATCH')
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)

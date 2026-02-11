@@ -1,13 +1,23 @@
 from rest_framework import serializers
-from .models import Category, Organization, Chapter
+from .models import Category, Organization, Chapter, ChapterNote
+
+
+class ChapterNoteSerializer(serializers.ModelSerializer):
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = ChapterNote
+        fields = ['id', 'content', 'status', 'status_display', 'progress', 'key_points', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
 
 
 class ChapterSerializer(serializers.ModelSerializer):
     video_count = serializers.IntegerField(read_only=True, default=0)
+    note = ChapterNoteSerializer(read_only=True)
 
     class Meta:
         model = Chapter
-        fields = ['id', 'name', 'video_count', 'created_at', 'updated_at']
+        fields = ['id', 'name', 'video_count', 'note', 'created_at', 'updated_at']
         read_only_fields = ['created_at', 'updated_at']
 
 

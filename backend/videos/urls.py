@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import (
     ChunkedUploadView, CompleteUploadView, VideoListView, VideoDetailView,
-    StreamVideoView, VideoDeleteView, VideoAbortView, SyncDriveVideosView,
+    StreamVideoView, DownloadVideoView, VideoDeleteView, VideoAbortView, SyncDriveVideosView,
     StreamAssetView, VideoRenameView,
     PDFUploadView, PDFListView, PDFDetailView, PDFDeleteView, StreamPDFView,
     PDFAnnotationListView, PDFAnnotationDetailView,
@@ -13,6 +13,7 @@ urlpatterns = [
     path('list/', VideoListView.as_view(), name='video-list'),
     path('detail/<int:pk>/', VideoDetailView.as_view(), name='video-detail'),
     path('stream/<str:file_id>/', StreamVideoView.as_view(), name='video-stream'),
+    path('download/<str:file_id>/', DownloadVideoView.as_view(), name='video-download'),
     path('asset/<str:file_id>/', StreamAssetView.as_view(), name='video-asset'),
     path('sync/', SyncDriveVideosView.as_view(), name='video-sync'),
     path('<int:pk>/rename/', VideoRenameView.as_view(), name='video-rename'),

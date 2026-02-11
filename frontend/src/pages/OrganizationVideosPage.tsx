@@ -2,13 +2,13 @@
  * OrganizationVideosPage Component
  * Shows all videos in a grid layout like YouTube homepage
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import { useTheme } from '../hooks/useTheme';
 import { slugify } from '../utils/slugify';
 import axiosInstance from '../api/axiosInstance';
-import { API_ENDPOINTS } from '../config/api.config';
+import { API_ENDPOINTS, API_CONFIG } from '../config/api.config';
 import { 
   ArrowLeft,
   Upload,
@@ -32,6 +32,8 @@ import {
   Pencil,
   Check,
   FilePlus,
+  StickyNote,
+  Save,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import PDFThumbnail from '../components/PDFThumbnail';
@@ -872,14 +874,104 @@ const VideoCard: React.FC<{
         )}
       </div>
 
-      <button
-        className="video-card-delete"
-        onClick={handleDelete}
-        title="Delete video"
-      >
-        <Trash2 size={16} />
-      </button>
+      {/* Action buttons */}
+      <div className="video-card-actions-overlay">
+        {canPlay && video.file_id && (
+          <a
+            className="video-card-action-btn video-card-download"
+            href={`${API_CONFIG.BASE_URL}${API_ENDPOINTS.VIDEOS.DOWNLOAD(video.file_id)}`}
+            onClick={(e) => e.stopPropagation()}
+            title="Download video"
+          >
+            <Download size={16} />
+          </a>
+        )}
+        <button
+          className="video-card-action-btn video-card-delete"
+          onClick={handleDelete}
+          title="Delete video"
+        >
+          <Trash2 size={16} />
+        </button>
+      </div>
     </div>
+  );
+};
+
+// =============================================================================
+// CHAPTER NOTES PANEL (simple)
+// =============================================================================
+interface ChapterNoteData {
+  id?: number;
+  content: string;
+  updated_at?: string;
+}
+
+const ChapterNotesPanel: React.FC<{ chapterId: number }> = ({ chapterId }) => {
+  const [content, setContent] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!chapterId) return;
+    setIsLoading(true);
+    axiosInstance.get(API_ENDPOINTS.VAULT.CHAPTER_NOTE(chapterId))
+      .then((res) => setContent(res.data.content || ''))
+      .catch(() => {})
+      .finally(() => setIsLoading(false));
+  }, [chapterId]);
+
+  const saveNote = useCallback(async (text: string) => {
+    if (!chapterId) return;
+    setIsSaving(true);
+    setSaved(false);
+    try {
+      await axiosInstance.patch(API_ENDPOINTS.VAULT.CHAPTER_NOTE(chapterId), { content: text });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      console.error('Failed to save note:', err);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [chapterId]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setContent(val);
+    setSaved(false);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => saveNote(val), 1500);
+  };
+
+  return (
+    <aside className="chapter-notes-panel">
+      <div className="chapter-notes-header">
+        <div className="chapter-notes-header-left">
+          <StickyNote size={16} />
+          <h3>Notes</h3>
+        </div>
+        <span className="chapter-notes-status-text">
+          {isSaving ? 'Saving...' : saved ? 'Saved' : ''}
+        </span>
+      </div>
+      {isLoading ? (
+        <div className="chapter-notes-loading">
+          <Loader2 size={22} className="spin-animation" />
+        </div>
+      ) : (
+        <div className="chapter-notes-body">
+          <textarea
+            className="chapter-notes-textarea"
+            placeholder="Write your notes here..."
+            value={content}
+            onChange={handleChange}
+          />
+        </div>
+      )}
+    </aside>
   );
 };
 
@@ -1191,136 +1283,145 @@ const OrganizationVideosPage: React.FC = () => {
     <div className="yt-page">
       <Navbar theme={theme} onThemeToggle={toggleTheme} />
 
-      <main className="org-videos-main">
-        {/* Breadcrumb */}
-        <nav className="org-breadcrumb">
-          <span className="org-breadcrumb-item" onClick={() => navigate('/home')}>{category.name}</span>
-          <span className="org-breadcrumb-sep">›</span>
-          <span className="org-breadcrumb-item" onClick={() => navigate(`/${categorySlug}/${organizationSlug}`)}>{organization.name}</span>
-          <span className="org-breadcrumb-sep">›</span>
-          <span className="org-breadcrumb-current">{chapter.name}</span>
-        </nav>
+      <div className="chapter-layout">
+        <main className="org-videos-main">
+          {/* Breadcrumb */}
+          <nav className="org-breadcrumb">
+            <span className="org-breadcrumb-item" onClick={() => navigate('/home')}>{category.name}</span>
+            <span className="org-breadcrumb-sep">›</span>
+            <span className="org-breadcrumb-item" onClick={() => navigate(`/${categorySlug}/${organizationSlug}`)}>{organization.name}</span>
+            <span className="org-breadcrumb-sep">›</span>
+            <span className="org-breadcrumb-current">{chapter.name}</span>
+          </nav>
 
-        {/* Header */}
-        <div className="org-videos-header">
-          <div className="org-header-left">
-            <button onClick={() => navigate(`/${categorySlug}/${organizationSlug}`)} className="org-back-btn">
-              <ArrowLeft size={20} />
-              <span className="org-back-btn-text">Back</span>
-            </button>
-            
-            <div className="org-info-header">
-              {organization.logo_url && (
-                <img src={organization.logo_url} alt="" className="org-logo-large" />
-              )}
-              <div className="org-info-text">
-                <h1 className="org-name-large">{chapter.name}</h1>
-                <p className="org-video-count">{videos.length} video{videos.length !== 1 ? 's' : ''}{pdfs.length > 0 ? ` · ${pdfs.length} PDF${pdfs.length !== 1 ? 's' : ''}` : ''}</p>
+          {/* Header */}
+          <div className="org-videos-header">
+            <div className="org-header-left">
+              <button onClick={() => navigate(`/${categorySlug}/${organizationSlug}`)} className="org-back-btn">
+                <ArrowLeft size={20} />
+                <span className="org-back-btn-text">Back</span>
+              </button>
+              
+              <div className="org-info-header">
+                {organization.logo_url && (
+                  <img src={organization.logo_url} alt="" className="org-logo-large" />
+                )}
+                <div className="org-info-text">
+                  <h1 className="org-name-large">{chapter.name}</h1>
+                  <p className="org-video-count">{videos.length} video{videos.length !== 1 ? 's' : ''}{pdfs.length > 0 ? ` · ${pdfs.length} PDF${pdfs.length !== 1 ? 's' : ''}` : ''}</p>
+                </div>
               </div>
+            </div>
+
+            <div className="org-header-actions">
+              <button 
+                className="org-sync-btn" 
+                onClick={handleSync}
+                disabled={isSyncing}
+                title="Sync videos from Google Drive"
+              >
+                <RefreshCw size={20} className={isSyncing ? 'spin-animation' : ''} />
+                <span className="org-btn-text">{isSyncing ? 'Syncing...' : 'Sync'}</span>
+              </button>
+              
+              <button className="org-upload-btn" onClick={() => setShowUploadModal(true)}>
+                <Upload size={20} />
+                <span className="org-btn-text">Upload</span>
+              </button>
+              
+              <button className="org-upload-btn org-telegram-btn" onClick={() => setShowTelegramModal(true)}>
+                <Send size={20} />
+                <span className="org-btn-text">Telegram</span>
+              </button>
             </div>
           </div>
 
-          <div className="org-header-actions">
-            <button 
-              className="org-sync-btn" 
-              onClick={handleSync}
-              disabled={isSyncing}
-              title="Sync videos from Google Drive"
-            >
-              <RefreshCw size={20} className={isSyncing ? 'spin-animation' : ''} />
-              <span className="org-btn-text">{isSyncing ? 'Syncing...' : 'Sync'}</span>
-            </button>
-            
-            <button className="org-upload-btn" onClick={() => setShowUploadModal(true)}>
-              <Upload size={20} />
-              <span className="org-btn-text">Upload</span>
-            </button>
-            
-            <button className="org-upload-btn org-telegram-btn" onClick={() => setShowTelegramModal(true)}>
-              <Send size={20} />
-              <span className="org-btn-text">Telegram</span>
-            </button>
-          </div>
-        </div>
+          {/* Sync Message */}
+          {syncMessage && (
+            <div className={`org-sync-message ${syncMessage.startsWith('Error') ? 'error' : 'success'}`}>
+              {syncMessage}
+            </div>
+          )}
 
-        {/* Sync Message */}
-        {syncMessage && (
-          <div className={`org-sync-message ${syncMessage.startsWith('Error') ? 'error' : 'success'}`}>
-            {syncMessage}
-          </div>
-        )}
-
-        {/* Videos Grid */}
-        {videos.length === 0 && pdfs.length === 0 ? (
-          <div className="org-videos-empty">
-            <Play size={64} />
-            <h2>No content yet</h2>
-            <p>Upload your first video or PDF to get started</p>
-            <button className="org-upload-btn-large" onClick={() => setShowUploadModal(true)}>
-              <Upload size={20} />
-              Upload
-            </button>
-          </div>
-        ) : (
-          <div className="org-videos-grid">
-            {/* PDF Cards */}
-            {pdfs.map((pdf) => (
-              <div
-                key={`pdf-${pdf.id}`}
-                className="video-card video-card--playable pdf-card"
-                onClick={() => navigate(`/${categorySlug}/${organizationSlug}/${chapterSlug}/pdf/${pdf.id}`, { state: { pdfId: pdf.id } })}
-              >
-                <div className="video-card-thumbnail pdf-card-thumbnail" style={{ padding: 0, overflow: 'hidden' }}>
-                  {pdf.stream_url ? (
-                    <PDFThumbnail streamUrl={pdf.stream_url} />
-                  ) : (
-                    <div className="pdf-card-icon">
-                      <FileText size={48} />
+          {/* Videos Grid */}
+          {videos.length === 0 && pdfs.length === 0 ? (
+            <div className="org-videos-empty">
+              <Play size={64} />
+              <h2>No content yet</h2>
+              <p>Upload your first video or PDF to get started</p>
+              <button className="org-upload-btn-large" onClick={() => setShowUploadModal(true)}>
+                <Upload size={20} />
+                Upload
+              </button>
+            </div>
+          ) : (
+            <div className="org-videos-grid">
+              {/* PDF Cards */}
+              {pdfs.map((pdf) => (
+                <div
+                  key={`pdf-${pdf.id}`}
+                  className="video-card video-card--playable pdf-card"
+                  onClick={() => navigate(`/${categorySlug}/${organizationSlug}/${chapterSlug}/pdf/${pdf.id}`, { state: { pdfId: pdf.id } })}
+                >
+                  <div className="video-card-thumbnail pdf-card-thumbnail" style={{ padding: 0, overflow: 'hidden' }}>
+                    {pdf.stream_url ? (
+                      <PDFThumbnail streamUrl={pdf.stream_url} />
+                    ) : (
+                      <div className="pdf-card-icon">
+                        <FileText size={48} />
+                      </div>
+                    )}
+                    {pdf.file_size && (
+                      <div className="video-card-duration">
+                        {(pdf.file_size / (1024 * 1024)).toFixed(1)} MB
+                      </div>
+                    )}
+                  </div>
+                  <div className="video-card-info">
+                    <h3 className="video-card-title">{pdf.title}</h3>
+                    <div className="video-card-meta">
+                      <span className="video-card-badge bg-blue-light">
+                        <FileText size={12} className="text-blue" />
+                        PDF
+                      </span>
+                      <span className="video-card-date">
+                        {formatDistanceToNow(new Date(pdf.created_at), { addSuffix: true })}
+                      </span>
                     </div>
-                  )}
-                  {pdf.file_size && (
-                    <div className="video-card-duration">
-                      {(pdf.file_size / (1024 * 1024)).toFixed(1)} MB
-                    </div>
-                  )}
-                </div>
-                <div className="video-card-info">
-                  <h3 className="video-card-title">{pdf.title}</h3>
-                  <div className="video-card-meta">
-                    <span className="video-card-badge bg-blue-light">
-                      <FileText size={12} className="text-blue" />
-                      PDF
-                    </span>
-                    <span className="video-card-date">
-                      {formatDistanceToNow(new Date(pdf.created_at), { addSuffix: true })}
-                    </span>
+                  </div>
+                  <div className="video-card-actions-overlay">
+                    <button
+                      className="video-card-action-btn video-card-delete"
+                      onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete "${pdf.title}"?`)) handleDeletePdf(pdf.id); }}
+                      title="Delete PDF"
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </div>
                 </div>
-                <button
-                  className="video-card-delete"
-                  onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete "${pdf.title}"?`)) handleDeletePdf(pdf.id); }}
-                  title="Delete PDF"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            ))}
+              ))}
 
-            {/* Video Cards */}
-            {videos.map((video) => (
-              <VideoCard
-                key={video.id}
-                video={video}
-                onDelete={handleDelete}
-                onRename={handleRename}
-                categorySlug={categorySlug!}
-                organizationSlug={organizationSlug!}
-                chapterSlug={chapterSlug!}
-              />
-            ))}
-          </div>
+              {/* Video Cards */}
+              {videos.map((video) => (
+                <VideoCard
+                  key={video.id}
+                  video={video}
+                  onDelete={handleDelete}
+                  onRename={handleRename}
+                  categorySlug={categorySlug!}
+                  organizationSlug={organizationSlug!}
+                  chapterSlug={chapterSlug!}
+                />
+              ))}
+            </div>
+          )}
+        </main>
+
+        {/* Chapter Notes Panel */}
+        {chapter.id > 0 && (
+          <ChapterNotesPanel chapterId={chapter.id} />
         )}
-      </main>
+      </div>
 
       {/* Upload Modal */}
       <UploadModal

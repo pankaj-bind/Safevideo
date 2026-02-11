@@ -320,6 +320,47 @@ class StreamVideoView(APIView):
             logger.error(f"Stream error: {e}")
             return Response({'error': 'Failed to stream video'}, status=status.HTTP_404_NOT_FOUND)
 
+class DownloadVideoView(APIView):
+    """Download a video file from Google Drive as an attachment."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, file_id):
+        try:
+            video = Video.objects.filter(user=request.user, file_id=file_id).first()
+            if not video:
+                return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+            drive_service = DriveService()
+
+            file_size = video.file_size
+            content_type = video.mime_type or 'video/mp4'
+            if not file_size:
+                meta = drive_service.get_file_metadata(file_id)
+                file_size = meta['size']
+                content_type = meta.get('mimeType', content_type)
+                if file_size:
+                    Video.objects.filter(id=video.id).update(
+                        file_size=file_size, mime_type=content_type
+                    )
+
+            file_iterator = drive_service.get_file_iterator(file_id)
+            response = StreamingHttpResponse(file_iterator, content_type=content_type)
+            if file_size:
+                response['Content-Length'] = str(file_size)
+
+            # Sanitize filename for Content-Disposition
+            safe_title = video.title.replace('"', '').replace('\\', '')
+            if not safe_title.lower().endswith('.mp4'):
+                safe_title += '.mp4'
+
+            response['Accept-Ranges'] = 'bytes'
+            response['Content-Disposition'] = f'attachment; filename="{safe_title}"'
+            return response
+        except Exception as e:
+            logger.error(f"Download error: {e}")
+            return Response({'error': 'Failed to download video'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class VideoRenameView(APIView):
     """Rename a video title in DB and on Google Drive."""
     permission_classes = [permissions.IsAuthenticated]

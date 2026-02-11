@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Category, Organization, Chapter
+from .models import Category, Organization, Chapter, ChapterNote
 
 
 @admin.register(Category)
@@ -23,4 +23,12 @@ class ChapterAdmin(admin.ModelAdmin):
     list_display = ['name', 'organization', 'created_at', 'updated_at']
     list_filter = ['organization', 'created_at']
     search_fields = ['name', 'organization__name']
+
+
+@admin.register(ChapterNote)
+class ChapterNoteAdmin(admin.ModelAdmin):
+    list_display = ['chapter', 'status', 'progress', 'updated_at']
+    list_filter = ['status', 'updated_at']
+    search_fields = ['chapter__name', 'content', 'key_points']
+    readonly_fields = ['created_at', 'updated_at']
     readonly_fields = ['created_at', 'updated_at']

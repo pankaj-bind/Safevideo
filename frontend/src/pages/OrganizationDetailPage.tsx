@@ -784,7 +784,7 @@ const OrganizationDetailPage: React.FC = () => {
     if (videoSlug || videoIdFromState) {
       const foundVideo = videos.find((v: Video) => {
         if (videoIdFromState) return v.id === videoIdFromState;
-        const vSlug = v.title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        const vSlug = slugify(v.title);
         return vSlug === videoSlug;
       });
       if (foundVideo && foundVideo.status === 'COMPLETED' && foundVideo.file_id) {
@@ -809,11 +809,11 @@ const OrganizationDetailPage: React.FC = () => {
       ]);
 
       const foundCategory = categoriesResponse.data.find(
-        (cat: any) => (cat.slug || cat.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')) === categorySlug
+        (cat: any) => (cat.slug || slugify(cat.name)) === categorySlug
       );
       
       const foundOrganization = organizationsResponse.data.find(
-        (org: any) => (org.slug || org.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')) === organizationSlug
+        (org: any) => (org.slug || slugify(org.name)) === organizationSlug
       );
 
       if (!foundCategory || !foundOrganization) {
@@ -827,7 +827,7 @@ const OrganizationDetailPage: React.FC = () => {
       // Resolve chapter from slug
       const chaptersRes = await axiosInstance.get(`/api/vault/chapters/?organization=${foundOrganization.id}`);
       const foundChapter = chaptersRes.data.find(
-        (ch: any) => (ch.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')) === chapterSlug
+        (ch: any) => slugify(ch.name) === chapterSlug
       );
 
       if (!foundChapter) {

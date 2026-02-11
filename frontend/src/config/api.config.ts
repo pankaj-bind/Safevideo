@@ -17,6 +17,7 @@ export const API_ENDPOINTS = {
     LIST: '/api/videos/list/',
     DETAIL: (id: number) => `/api/videos/detail/${id}/`,
     STREAM: (id: string) => `/api/videos/stream/${id}/`,
+    DOWNLOAD: (id: string) => `/api/videos/download/${id}/`,
     ABORT: (id: number) => `/api/videos/${id}/abort/`,
     DELETE: (id: number) => `/api/videos/${id}/`,
     RENAME: (id: number) => `/api/videos/${id}/rename/`,
@@ -35,6 +36,7 @@ export const API_ENDPOINTS = {
     CATEGORIES: '/api/vault/categories/',
     ORGANIZATIONS: '/api/vault/organizations/',
     CHAPTERS: '/api/vault/chapters/',
+    CHAPTER_NOTE: (chapterId: number) => `/api/vault/chapters/${chapterId}/note/`,
   },
   TELEGRAM: {
     CONFIG: '/api/telegram/config/',
