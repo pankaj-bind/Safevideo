@@ -37,6 +37,7 @@ export const API_ENDPOINTS = {
     ORGANIZATIONS: '/api/vault/organizations/',
     CHAPTERS: '/api/vault/chapters/',
     CHAPTER_NOTE: (chapterId: number) => `/api/vault/chapters/${chapterId}/note/`,
+    SYNC_ALL: '/api/vault/sync-all/',
   },
   TELEGRAM: {
     CONFIG: '/api/telegram/config/',

@@ -13,11 +13,12 @@ class ChapterNoteSerializer(serializers.ModelSerializer):
 
 class ChapterSerializer(serializers.ModelSerializer):
     video_count = serializers.IntegerField(read_only=True, default=0)
+    pdf_count = serializers.IntegerField(read_only=True, default=0)
     note = ChapterNoteSerializer(read_only=True)
 
     class Meta:
         model = Chapter
-        fields = ['id', 'name', 'video_count', 'note', 'created_at', 'updated_at']
+        fields = ['id', 'name', 'video_count', 'pdf_count', 'note', 'created_at', 'updated_at']
         read_only_fields = ['created_at', 'updated_at']
 
 
@@ -44,11 +45,12 @@ class OrganizationSerializer(serializers.ModelSerializer):
     logo_url = serializers.SerializerMethodField()
     video_count = serializers.IntegerField(read_only=True, default=0)
     chapter_count = serializers.IntegerField(read_only=True, default=0)
+    pdf_count = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
         model = Organization
-        fields = ['id', 'name', 'logo', 'logo_url', 'credential_count', 'video_count', 'chapter_count', 'created_at', 'updated_at']
-        read_only_fields = ['credential_count', 'video_count', 'chapter_count', 'created_at', 'updated_at']
+        fields = ['id', 'name', 'logo', 'logo_url', 'credential_count', 'video_count', 'chapter_count', 'pdf_count', 'created_at', 'updated_at']
+        read_only_fields = ['credential_count', 'video_count', 'chapter_count', 'pdf_count', 'created_at', 'updated_at']
 
     def get_logo_url(self, obj):
         if obj.logo:

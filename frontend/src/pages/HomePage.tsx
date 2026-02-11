@@ -26,6 +26,7 @@ import {
   Clock,
   CheckCircle,
   Video,
+  RefreshCw,
 } from 'lucide-react';
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -40,6 +41,7 @@ interface Organization {
   credential_count: number;
   video_count?: number;
   chapter_count?: number;
+  pdf_count?: number;
 }
 
 interface Category {
@@ -274,6 +276,7 @@ const HomePage: React.FC = () => {
   const [categoryModal, setCategoryModal] = useState<{ isOpen: boolean; editId?: number; initialName?: string }>({ isOpen: false });
   const [orgModal, setOrgModal] = useState<{ isOpen: boolean; categoryId?: number; editId?: number; initialName?: string; initialLogo?: string | null }>({ isOpen: false });
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'category' | 'org'; id: number; name: string } | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => { fetchCategories(); }, []);
 
@@ -382,6 +385,32 @@ const HomePage: React.FC = () => {
     setDeleteConfirm(null);
   };
 
+  // ── Sync with Google Drive ──
+  const handleSyncAll = async () => {
+    try {
+      setIsSyncing(true);
+      const response = await axiosInstance.post('/api/vault/sync-all/');
+      await fetchCategories();
+      
+      const { videos_synced, videos_deleted, pdfs_synced, pdfs_deleted, errors } = response.data;
+      
+      if (errors && errors.length > 0) {
+        addToast(`Sync completed with ${errors.length} error(s)`, 'error');
+      } else {
+        const changes = videos_synced + videos_deleted + pdfs_synced + pdfs_deleted;
+        if (changes > 0) {
+          addToast(`Synced: +${videos_synced + pdfs_synced} items, -${videos_deleted + pdfs_deleted} items`, 'success');
+        } else {
+          addToast('Everything is up to date', 'info');
+        }
+      }
+    } catch (error: any) {
+      addToast(error.response?.data?.error || 'Sync failed', 'error');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // ── Filtering & stats ──
   const filteredCategories = categories.filter((cat) =>
     cat.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -416,6 +445,15 @@ const HomePage: React.FC = () => {
                 <button className="home-search-clear" onClick={() => setSearchQuery('')}><X size={14} /></button>
               )}
             </div>
+            <button 
+              onClick={handleSyncAll} 
+              className="home-btn" 
+              disabled={isSyncing}
+              title="Sync all chapters with Google Drive"
+            >
+              <RefreshCw size={18} className={isSyncing ? 'spin-animation' : ''} />
+              <span>{isSyncing ? 'Syncing...' : 'Sync Drive'}</span>
+            </button>
             <button onClick={() => setCategoryModal({ isOpen: true })} className="home-btn home-btn--primary">
               <Plus size={18} />
               <span>New Category</span>
@@ -488,6 +526,12 @@ const HomePage: React.FC = () => {
                                       <h4 className="org-card-name">{org.name}</h4>
                                       <span className="org-card-videos">
                                         <Video size={13} /> {org.chapter_count ?? 0} {(org.chapter_count ?? 0) === 1 ? 'chapter' : 'chapters'}
+                                        {(org.video_count ?? 0) > 0 && (
+                                          <> · {org.video_count} video{(org.video_count ?? 0) !== 1 ? 's' : ''}</>
+                                        )}
+                                        {(org.pdf_count ?? 0) > 0 && (
+                                          <> · {org.pdf_count} PDF{(org.pdf_count ?? 0) !== 1 ? 's' : ''}</>
+                                        )}
                                       </span>
                                     </div>
                                     {/* Arrow removed for cleaner look, available on hover via CSS if needed, or just keep it simple */}

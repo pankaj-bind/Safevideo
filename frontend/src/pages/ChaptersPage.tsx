@@ -19,6 +19,7 @@ import {
   Trash2,
   Edit2,
   Video,
+  FileText,
   X,
   Search,
   Loader2,
@@ -31,6 +32,7 @@ interface Chapter {
   id: number;
   name: string;
   video_count?: number;
+  pdf_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -328,6 +330,13 @@ const ChaptersPage: React.FC = () => {
                     <span className="chapter-card-count">
                       <Video size={14} />
                       {chapter.video_count ?? 0} video{(chapter.video_count ?? 0) !== 1 ? 's' : ''}
+                      {(chapter.pdf_count ?? 0) > 0 && (
+                        <>
+                          <span style={{ margin: '0 0.3rem' }}>·</span>
+                          <FileText size={14} />
+                          {chapter.pdf_count} PDF{(chapter.pdf_count ?? 0) !== 1 ? 's' : ''}
+                        </>
+                      )}
                     </span>
                   </div>
                 </div>

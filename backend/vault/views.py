@@ -1,9 +1,11 @@
+import logging
 from django.db.models import Count
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.views import APIView
 from .models import Category, Organization, Chapter, ChapterNote
 from .serializers import (
     CategorySerializer, 
@@ -14,6 +16,8 @@ from .serializers import (
     ChapterCreateSerializer,
     ChapterNoteSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -26,8 +30,9 @@ class CategoryViewSet(viewsets.ModelViewSet):
             Prefetch(
                 'organizations',
                 queryset=Organization.objects.annotate(
-                    video_count=Count('videos'),
+                    video_count=Count('videos', distinct=True),
                     chapter_count=Count('chapters', distinct=True),
+                    pdf_count=Count('pdfs', distinct=True),
                 )
             )
         )
@@ -59,8 +64,9 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         return Organization.objects.filter(
             category__user=self.request.user
         ).annotate(
-            video_count=Count('videos'),
+            video_count=Count('videos', distinct=True),
             chapter_count=Count('chapters', distinct=True),
+            pdf_count=Count('pdfs', distinct=True),
         )
     
     def get_serializer_class(self):
@@ -130,7 +136,10 @@ class ChapterViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = Chapter.objects.filter(
             organization__category__user=self.request.user
-        ).select_related('note').annotate(video_count=Count('videos'))
+        ).select_related('note').annotate(
+            video_count=Count('videos'),
+            pdf_count=Count('pdfs', distinct=True),
+        )
         # Optionally filter by organization
         org_id = self.request.query_params.get('organization')
         if org_id:
@@ -167,3 +176,257 @@ class ChapterViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+class SyncAllChaptersView(APIView):
+    """Sync all chapters for the current user with Google Drive"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            from videos.models import Video, PDFDocument
+            from videos.services import DriveService
+
+            user = request.user
+            drive_service = DriveService()
+
+            # Get all chapters for this user
+            chapters = Chapter.objects.filter(
+                organization__category__user=user
+            ).select_related('organization', 'organization__category')
+
+            total_synced = 0
+            total_deleted = 0
+            total_pdf_synced = 0
+            total_pdf_deleted = 0
+            total_chapters = chapters.count()
+            errors = []
+
+            for chapter in chapters:
+                organization = chapter.organization
+                category = organization.category
+                folder_path = f"{category.name}/{organization.name}/{chapter.name}"
+
+                try:
+                    result = self._sync_chapter(
+                        user=user,
+                        organization=organization,
+                        chapter=chapter,
+                        folder_path=folder_path,
+                        drive_service=drive_service
+                    )
+
+                    total_synced += result['synced']
+                    total_deleted += result['deleted']
+                    total_pdf_synced += result['pdf_synced']
+                    total_pdf_deleted += result['pdf_deleted']
+
+                except Exception as e:
+                    error_msg = f"{folder_path}: {str(e)}"
+                    errors.append(error_msg)
+                    logger.error(f'Error syncing chapter {chapter.id}: {e}', exc_info=True)
+
+            return Response({
+                'message': 'Sync completed',
+                'chapters_processed': total_chapters,
+                'videos_synced': total_synced,
+                'videos_deleted': total_deleted,
+                'pdfs_synced': total_pdf_synced,
+                'pdfs_deleted': total_pdf_deleted,
+                'errors': errors,
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f'Sync all chapters error: {e}', exc_info=True)
+            return Response(
+                {'error': f'Sync failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def _sync_chapter(self, user, organization, chapter, folder_path, drive_service):
+        """Sync a single chapter with Google Drive."""
+        from videos.models import Video, PDFDocument
+        from videos.services import start_sync_metadata
+
+        synced = 0
+        deleted = 0
+        pdf_synced = 0
+        pdf_deleted = 0
+
+        # Check if the Drive folder still exists
+        drive_folder_id = drive_service.folder_exists_in_path(folder_path)
+
+        if drive_folder_id is None:
+            # Folder deleted from Drive → purge all videos and PDFs
+            purge_filter = {
+                'organization': organization,
+                'chapter': chapter,
+                'user': user,
+            }
+
+            deleted_qs = Video.objects.filter(**purge_filter)
+            deleted = deleted_qs.count()
+            deleted_qs.delete()
+
+            deleted_pdf_qs = PDFDocument.objects.filter(**purge_filter)
+            pdf_deleted = deleted_pdf_qs.count()
+            deleted_pdf_qs.delete()
+
+            return {
+                'synced': 0,
+                'deleted': deleted,
+                'pdf_synced': 0,
+                'pdf_deleted': pdf_deleted,
+            }
+
+        # =================================================================
+        # Phase 1 – Sync Videos
+        # =================================================================
+        drive_files = drive_service.list_folder_files(folder_path)
+        drive_file_ids = {f.get('id') for f in drive_files if f.get('id')}
+        drive_subfolder_ids = {
+            f.get('drive_folder_id') for f in drive_files if f.get('drive_folder_id')
+        }
+
+        # Remove DB videos whose Drive file no longer exists
+        existing_filter = {
+            'organization': organization,
+            'chapter': chapter,
+            'user': user,
+            'file_id__isnull': False,
+        }
+
+        db_videos = Video.objects.filter(**existing_filter)
+
+        for video in db_videos:
+            still_on_drive = False
+
+            if video.file_id and video.file_id in drive_file_ids:
+                still_on_drive = True
+            elif video.drive_folder_id and video.drive_folder_id in drive_subfolder_ids:
+                still_on_drive = True
+
+            if not still_on_drive:
+                if video.drive_folder_id:
+                    still_on_drive = drive_service.file_exists(video.drive_folder_id)
+                elif video.file_id:
+                    still_on_drive = drive_service.file_exists(video.file_id)
+
+            if not still_on_drive:
+                video.delete()
+                deleted += 1
+
+        # Import new videos from Drive → DB
+        remaining_file_ids = set(
+            Video.objects.filter(**existing_filter).values_list('file_id', flat=True)
+        )
+
+        new_video_ids = []
+        for drive_file in drive_files:
+            file_id = drive_file.get('id')
+            if file_id in remaining_file_ids:
+                continue
+
+            # Extract duration from videoMediaMetadata
+            drive_duration = None
+            vmm = drive_file.get('videoMediaMetadata')
+            if vmm and vmm.get('durationMillis'):
+                try:
+                    drive_duration = int(vmm['durationMillis']) / 1000.0
+                except (ValueError, TypeError):
+                    pass
+
+            video = Video.objects.create(
+                user=user,
+                title=drive_file.get('name', 'Untitled'),
+                file_id=file_id,
+                status='COMPLETED',
+                organization=organization,
+                chapter=chapter,
+                category=organization.category,
+                folder_path=folder_path,
+                file_size=int(drive_file.get('size', 0)),
+                mime_type=drive_file.get('mimeType', ''),
+                drive_folder_id=drive_file.get('drive_folder_id'),
+                thumbnail=drive_file.get('thumbnail_id'),
+                preview=drive_file.get('preview_id'),
+                duration=drive_duration,
+            )
+            new_video_ids.append(video.id)
+            synced += 1
+
+        # Generate metadata for new videos
+        for vid_id in new_video_ids:
+            try:
+                start_sync_metadata(vid_id)
+            except Exception:
+                pass
+
+        # =================================================================
+        # Phase 2 – Sync PDFs (separate Drive listing)
+        # =================================================================
+        try:
+            drive_pdfs = drive_service.list_folder_pdfs(folder_path)
+            drive_pdf_file_ids = {f.get('id') for f in drive_pdfs if f.get('id')}
+            drive_pdf_subfolder_ids = {
+                f.get('drive_folder_id') for f in drive_pdfs if f.get('drive_folder_id')
+            }
+
+            # Remove DB PDFs whose Drive file no longer exists
+            pdf_filter = {
+                'organization': organization,
+                'chapter': chapter,
+                'user': user,
+                'file_id__isnull': False,
+            }
+
+            db_pdfs = PDFDocument.objects.filter(**pdf_filter)
+            for pdf in db_pdfs:
+                still_on_drive = False
+                if pdf.file_id and pdf.file_id in drive_pdf_file_ids:
+                    still_on_drive = True
+                elif pdf.drive_folder_id and pdf.drive_folder_id in drive_pdf_subfolder_ids:
+                    still_on_drive = True
+
+                if not still_on_drive:
+                    if pdf.drive_folder_id:
+                        still_on_drive = drive_service.file_exists(pdf.drive_folder_id)
+                    elif pdf.file_id:
+                        still_on_drive = drive_service.file_exists(pdf.file_id)
+
+                if not still_on_drive:
+                    pdf.delete()
+                    pdf_deleted += 1
+
+            # Import new PDFs from Drive → DB
+            remaining_pdf_file_ids = set(
+                PDFDocument.objects.filter(**pdf_filter).values_list('file_id', flat=True)
+            )
+
+            for drive_pdf in drive_pdfs:
+                file_id = drive_pdf.get('id')
+                if file_id in remaining_pdf_file_ids:
+                    continue
+
+                PDFDocument.objects.create(
+                    user=user,
+                    title=drive_pdf.get('name', 'Untitled.pdf'),
+                    file_id=file_id,
+                    drive_folder_id=drive_pdf.get('drive_folder_id'),
+                    file_size=int(drive_pdf.get('size', 0)),
+                    folder_path=folder_path,
+                    organization=organization,
+                    chapter=chapter,
+                    category=organization.category,
+                )
+                pdf_synced += 1
+
+        except Exception as e:
+            logger.warning(f"PDF sync phase failed for {folder_path}: {e}")
+
+        return {
+            'synced': synced,
+            'deleted': deleted,
+            'pdf_synced': pdf_synced,
+            'pdf_deleted': pdf_deleted,
+        }
