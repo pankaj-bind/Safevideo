@@ -34,6 +34,7 @@ import {
   FilePlus,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import PDFThumbnail from '../components/PDFThumbnail';
 import '../styles/pdf-reader.css';
 
 // =============================================================================
@@ -83,14 +84,21 @@ interface PDFDoc {
 const UploadModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
-  onUpload: (file: File) => void;
+  onUploadVideo: (file: File) => void;
+  onUploadPdf: (file: File) => void;
   isUploading: boolean;
   uploadError: string | null;
   uploadProgress: number;
   uploadPhase: string;
-}> = ({ isOpen, onClose, onUpload, isUploading, uploadError, uploadProgress, uploadPhase }) => {
+  isUploadingPdf: boolean;
+  pdfUploadProgress: number;
+  pdfUploadPhase: string;
+}> = ({ isOpen, onClose, onUploadVideo, onUploadPdf, isUploading, uploadError, uploadProgress, uploadPhase, isUploadingPdf, pdfUploadProgress, pdfUploadPhase }) => {
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const pdfFileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const isBusy = isUploading || isUploadingPdf;
 
   if (!isOpen) return null;
 
@@ -112,24 +120,37 @@ const UploadModal: React.FC<{
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
       if (file.type.startsWith('video/')) {
-        onUpload(file);
+        onUploadVideo(file);
+      } else if (file.type === 'application/pdf') {
+        onUploadPdf(file);
       }
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVideoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     e.preventDefault();
     if (e.target.files && e.target.files[0]) {
-      onUpload(e.target.files[0]);
+      onUploadVideo(e.target.files[0]);
     }
   };
+
+  const handlePdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    if (e.target.files && e.target.files[0]) {
+      onUploadPdf(e.target.files[0]);
+    }
+  };
+
+  // Determine which progress to show
+  const activeProgress = isUploadingPdf ? pdfUploadProgress : uploadProgress;
+  const activePhase = isUploadingPdf ? pdfUploadPhase : uploadPhase;
 
   return (
     <div className="yt-modal-backdrop" onClick={onClose}>
       <div className="yt-modal" onClick={(e) => e.stopPropagation()}>
         <div className="yt-modal-header">
-          <h2>Upload Video</h2>
-          <button onClick={onClose} className="yt-modal-close" disabled={isUploading}>
+          <h2>Upload</h2>
+          <button onClick={onClose} className="yt-modal-close" disabled={isBusy}>
             <X size={20} />
           </button>
         </div>
@@ -143,23 +164,30 @@ const UploadModal: React.FC<{
           )}
 
           <div
-            className={`yt-upload-zone ${dragActive ? 'yt-upload-zone--active' : ''} ${isUploading ? 'yt-upload-zone--disabled' : ''}`}
+            className={`yt-upload-zone ${dragActive ? 'yt-upload-zone--active' : ''} ${isBusy ? 'yt-upload-zone--disabled' : ''}`}
             onDragEnter={handleDrag}
             onDragLeave={handleDrag}
             onDragOver={handleDrag}
             onDrop={handleDrop}
-            onClick={() => !isUploading && fileInputRef.current?.click()}
           >
             <input
               ref={fileInputRef}
               type="file"
               accept="video/*"
-              onChange={handleChange}
+              onChange={handleVideoChange}
               style={{ display: 'none' }}
-              disabled={isUploading}
+              disabled={isBusy}
+            />
+            <input
+              ref={pdfFileInputRef}
+              type="file"
+              accept="application/pdf"
+              onChange={handlePdfChange}
+              style={{ display: 'none' }}
+              disabled={isBusy}
             />
             
-            {isUploading ? (
+            {isBusy ? (
               <div className="yt-upload-content">
                 <div className="upload-progress-ring">
                   <svg viewBox="0 0 100 100" width="80" height="80">
@@ -169,17 +197,17 @@ const UploadModal: React.FC<{
                       stroke="var(--primary-color)" strokeWidth="6"
                       strokeLinecap="round"
                       strokeDasharray={`${2 * Math.PI * 42}`}
-                      strokeDashoffset={`${2 * Math.PI * 42 * (1 - uploadProgress / 100)}`}
+                      strokeDashoffset={`${2 * Math.PI * 42 * (1 - activeProgress / 100)}`}
                       transform="rotate(-90 50 50)"
                       style={{ transition: 'stroke-dashoffset 0.3s ease' }}
                     />
                   </svg>
-                  <span className="upload-progress-pct">{Math.round(uploadProgress)}%</span>
+                  <span className="upload-progress-pct">{Math.round(activeProgress)}%</span>
                 </div>
-                <p className="yt-upload-text">{uploadPhase}</p>
+                <p className="yt-upload-text">{activePhase}</p>
                 <div className="upload-progress-bar-wrapper">
                   <div className="upload-progress-bar">
-                    <div className="upload-progress-fill" style={{ width: `${uploadProgress}%` }} />
+                    <div className="upload-progress-fill" style={{ width: `${activeProgress}%` }} />
                   </div>
                 </div>
                 <p className="yt-upload-hint">Please don't close this window</p>
@@ -188,9 +216,27 @@ const UploadModal: React.FC<{
               <div className="yt-upload-content">
                 <CloudUpload size={48} />
                 <p className="yt-upload-text">
-                  {dragActive ? 'Drop your video here!' : 'Drag & drop your video'}
+                  {dragActive ? 'Drop your file here!' : 'Drag & drop your file'}
                 </p>
-                <p className="yt-upload-hint">or click to browse</p>
+                <p className="yt-upload-hint">Videos and PDFs supported</p>
+                <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                  <button
+                    className="org-upload-btn-large"
+                    onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                    style={{ fontSize: '14px', padding: '8px 20px' }}
+                  >
+                    <Play size={16} />
+                    Choose Video
+                  </button>
+                  <button
+                    className="org-upload-btn-large"
+                    onClick={(e) => { e.stopPropagation(); pdfFileInputRef.current?.click(); }}
+                    style={{ fontSize: '14px', padding: '8px 20px' }}
+                  >
+                    <FileText size={16} />
+                    Choose PDF
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -860,7 +906,8 @@ const OrganizationVideosPage: React.FC = () => {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [pdfs, setPdfs] = useState<PDFDoc[]>([]);
   const [isUploadingPdf, setIsUploadingPdf] = useState(false);
-  const pdfInputRef = React.useRef<HTMLInputElement>(null);
+  const [pdfUploadProgress, setPdfUploadProgress] = useState(0);
+  const [pdfUploadPhase, setPdfUploadPhase] = useState('Preparing upload…');
 
   useEffect(() => {
     fetchData();
@@ -1041,6 +1088,8 @@ const OrganizationVideosPage: React.FC = () => {
   const handlePdfUpload = async (file: File) => {
     if (!file || file.type !== 'application/pdf') return;
     setIsUploadingPdf(true);
+    setPdfUploadProgress(0);
+    setPdfUploadPhase('Uploading PDF…');
     try {
       const formData = new FormData();
       formData.append('file', file);
@@ -1052,12 +1101,25 @@ const OrganizationVideosPage: React.FC = () => {
       await axiosInstance.post(API_ENDPOINTS.PDFS.UPLOAD, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 300_000,
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const pct = Math.round((progressEvent.loaded / progressEvent.total) * 95);
+            setPdfUploadProgress(pct);
+            setPdfUploadPhase(pct < 95 ? `Uploading PDF… ${pct}%` : 'Saving to Google Drive…');
+          }
+        },
       });
+      setPdfUploadProgress(100);
+      setPdfUploadPhase('Upload complete!');
+      await new Promise((r) => setTimeout(r, 600));
+      setShowUploadModal(false);
       await fetchPdfs();
     } catch (error) {
       console.error('PDF upload failed:', error);
+      setUploadError('PDF upload failed. Please try again.');
     } finally {
       setIsUploadingPdf(false);
+      setPdfUploadProgress(0);
     }
   };
 
@@ -1092,12 +1154,13 @@ const OrganizationVideosPage: React.FC = () => {
         chapter_id: chapter.id || undefined,
       });
       
-      const { message, synced = 0, deleted = 0 } = response.data;
+      const { message, synced = 0, deleted = 0, pdf_synced = 0, pdf_deleted = 0 } = response.data;
       setSyncMessage(message);
 
-      // Refresh the video list whenever anything changed
-      if (synced > 0 || deleted > 0) {
+      // Refresh the video and PDF lists whenever anything changed
+      if (synced > 0 || deleted > 0 || pdf_synced > 0 || pdf_deleted > 0) {
         await fetchVideos();
+        await fetchPdfs();
       }
       
       // Clear message after 5 seconds
@@ -1177,22 +1240,6 @@ const OrganizationVideosPage: React.FC = () => {
               <Send size={20} />
               <span className="org-btn-text">Telegram</span>
             </button>
-
-            <button
-              className="org-upload-btn org-pdf-btn"
-              onClick={() => pdfInputRef.current?.click()}
-              disabled={isUploadingPdf}
-            >
-              {isUploadingPdf ? <Loader2 size={20} className="spin-animation" /> : <FilePlus size={20} />}
-              <span className="org-btn-text">{isUploadingPdf ? 'Uploading…' : 'PDF'}</span>
-            </button>
-            <input
-              ref={pdfInputRef}
-              type="file"
-              accept="application/pdf"
-              style={{ display: 'none' }}
-              onChange={(e) => { if (e.target.files?.[0]) handlePdfUpload(e.target.files[0]); e.target.value = ''; }}
-            />
           </div>
         </div>
 
@@ -1209,16 +1256,10 @@ const OrganizationVideosPage: React.FC = () => {
             <Play size={64} />
             <h2>No content yet</h2>
             <p>Upload your first video or PDF to get started</p>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button className="org-upload-btn-large" onClick={() => setShowUploadModal(true)}>
-                <Upload size={20} />
-                Upload Video
-              </button>
-              <button className="org-upload-btn-large" onClick={() => pdfInputRef.current?.click()}>
-                <FilePlus size={20} />
-                Upload PDF
-              </button>
-            </div>
+            <button className="org-upload-btn-large" onClick={() => setShowUploadModal(true)}>
+              <Upload size={20} />
+              Upload
+            </button>
           </div>
         ) : (
           <div className="org-videos-grid">
@@ -1229,10 +1270,14 @@ const OrganizationVideosPage: React.FC = () => {
                 className="video-card video-card--playable pdf-card"
                 onClick={() => navigate(`/${categorySlug}/${organizationSlug}/${chapterSlug}/pdf/${pdf.id}`, { state: { pdfId: pdf.id } })}
               >
-                <div className="video-card-thumbnail pdf-card-thumbnail">
-                  <div className="pdf-card-icon">
-                    <FileText size={48} />
-                  </div>
+                <div className="video-card-thumbnail pdf-card-thumbnail" style={{ padding: 0, overflow: 'hidden' }}>
+                  {pdf.stream_url ? (
+                    <PDFThumbnail streamUrl={pdf.stream_url} />
+                  ) : (
+                    <div className="pdf-card-icon">
+                      <FileText size={48} />
+                    </div>
+                  )}
                   {pdf.file_size && (
                     <div className="video-card-duration">
                       {(pdf.file_size / (1024 * 1024)).toFixed(1)} MB
@@ -1280,12 +1325,16 @@ const OrganizationVideosPage: React.FC = () => {
       {/* Upload Modal */}
       <UploadModal
         isOpen={showUploadModal}
-        onClose={() => !isUploading && setShowUploadModal(false)}
-        onUpload={handleUpload}
+        onClose={() => !(isUploading || isUploadingPdf) && setShowUploadModal(false)}
+        onUploadVideo={handleUpload}
+        onUploadPdf={handlePdfUpload}
         isUploading={isUploading}
         uploadError={uploadError}
         uploadProgress={uploadProgress}
         uploadPhase={uploadPhase}
+        isUploadingPdf={isUploadingPdf}
+        pdfUploadProgress={pdfUploadProgress}
+        pdfUploadPhase={pdfUploadPhase}
       />
 
       {/* Telegram Upload Modal */}

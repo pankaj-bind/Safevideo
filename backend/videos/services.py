@@ -465,6 +465,89 @@ class DriveService:
             print(f"Error listing folder files: {e}")
             return []
 
+    def list_folder_pdfs(self, folder_path):
+        """List all PDF files in a specific Google Drive folder path.
+        
+        Supports both:
+        - Loose PDF files directly in the folder
+        - PDF subfolders (structure: PdfName/file.pdf)
+        
+        Returns:
+            List of dicts: {id, name, size, mimeType, createdTime, drive_folder_id?}
+        """
+        try:
+            parent_folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
+            if not parent_folder_id:
+                raise Exception("GOOGLE_DRIVE_FOLDER_ID not configured")
+
+            # Navigate to the target folder
+            if folder_path:
+                folder_names = folder_path.split('/')
+                current_parent = parent_folder_id
+                for folder_name in folder_names:
+                    query = (
+                        f"name='{folder_name}' and '{current_parent}' in parents "
+                        f"and mimeType='application/vnd.google-apps.folder' and trashed=false"
+                    )
+                    results = self.service.files().list(
+                        q=query, spaces='drive', fields='files(id, name)'
+                    ).execute()
+                    folders = results.get('files', [])
+                    if not folders:
+                        return []
+                    current_parent = folders[0]['id']
+                parent_folder_id = current_parent
+
+            all_pdfs = []
+
+            # 1) Loose PDF files directly in the folder
+            query = (
+                f"'{parent_folder_id}' in parents "
+                f"and mimeType='application/pdf' and trashed=false"
+            )
+            results = self.service.files().list(
+                q=query,
+                spaces='drive',
+                fields='files(id, name, size, mimeType, createdTime)',
+                orderBy='createdTime desc',
+            ).execute()
+            all_pdfs.extend(results.get('files', []))
+
+            # 2) Subfolders — look inside each subfolder for PDF files
+            subfolder_query = (
+                f"'{parent_folder_id}' in parents "
+                f"and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            )
+            subfolder_results = self.service.files().list(
+                q=subfolder_query,
+                spaces='drive',
+                fields='files(id, name, createdTime)',
+            ).execute()
+
+            for subfolder in subfolder_results.get('files', []):
+                sf_id = subfolder['id']
+                inner_query = (
+                    f"'{sf_id}' in parents "
+                    f"and mimeType='application/pdf' and trashed=false"
+                )
+                inner_results = self.service.files().list(
+                    q=inner_query,
+                    spaces='drive',
+                    fields='files(id, name, size, mimeType)',
+                ).execute()
+                inner_files = inner_results.get('files', [])
+
+                for pdf_file in inner_files:
+                    pdf_file['drive_folder_id'] = sf_id
+                    pdf_file['createdTime'] = subfolder.get('createdTime')
+                    all_pdfs.append(pdf_file)
+
+            return all_pdfs
+
+        except Exception as e:
+            logger.error(f"Error listing folder PDFs: {e}")
+            return []
+
 class VideoProcessor:
     def __init__(self, input_path, output_path):
         self.input_path = input_path

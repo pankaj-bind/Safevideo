@@ -471,7 +471,7 @@ class SyncDriveVideosView(APIView):
             drive_folder_id = drive_service.folder_exists_in_path(folder_path)
 
             if drive_folder_id is None:
-                # The entire folder was deleted from Drive → purge all videos
+                # The entire folder was deleted from Drive → purge all videos and PDFs
                 purge_filter = {
                     'organization': organization,
                     'user': request.user,
@@ -483,10 +483,16 @@ class SyncDriveVideosView(APIView):
                 deleted_count = deleted_qs.count()
                 deleted_qs.delete()
 
+                deleted_pdf_qs = PDFDocument.objects.filter(**purge_filter)
+                pdf_deleted_count = deleted_pdf_qs.count()
+                deleted_pdf_qs.delete()
+
                 return Response({
-                    'message': f'Drive folder no longer exists. Removed {deleted_count} video(s) from the app.',
+                    'message': f'Drive folder no longer exists. Removed {deleted_count} video(s) and {pdf_deleted_count} PDF(s) from the app.',
                     'synced': 0,
                     'deleted': deleted_count,
+                    'pdf_synced': 0,
+                    'pdf_deleted': pdf_deleted_count,
                     'total': 0,
                 }, status=status.HTTP_200_OK)
 
@@ -620,12 +626,84 @@ class SyncDriveVideosView(APIView):
             for vid_id in existing_missing:
                 start_sync_metadata(vid_id)
 
+            # =============================================================
+            # Phase 5 – Sync PDFs (cleanup stale + import new from Drive)
+            # =============================================================
+            pdf_deleted_count = 0
+            pdf_synced_count = 0
+
+            try:
+                # 5a – List PDFs currently on Drive
+                drive_pdfs = drive_service.list_folder_pdfs(folder_path)
+                drive_pdf_file_ids = {f.get('id') for f in drive_pdfs if f.get('id')}
+                drive_pdf_subfolder_ids = {
+                    f.get('drive_folder_id') for f in drive_pdfs if f.get('drive_folder_id')
+                }
+
+                # 5b – Remove DB PDFs whose Drive file no longer exists
+                pdf_filter = {
+                    'organization': organization,
+                    'user': request.user,
+                    'file_id__isnull': False,
+                }
+                if chapter:
+                    pdf_filter['chapter'] = chapter
+
+                db_pdfs = PDFDocument.objects.filter(**pdf_filter)
+                for pdf in db_pdfs:
+                    still_on_drive = False
+                    if pdf.file_id and pdf.file_id in drive_pdf_file_ids:
+                        still_on_drive = True
+                    elif pdf.drive_folder_id and pdf.drive_folder_id in drive_pdf_subfolder_ids:
+                        still_on_drive = True
+
+                    if not still_on_drive:
+                        if pdf.drive_folder_id:
+                            still_on_drive = drive_service.file_exists(pdf.drive_folder_id)
+                        elif pdf.file_id:
+                            still_on_drive = drive_service.file_exists(pdf.file_id)
+
+                    if not still_on_drive:
+                        logger.info(f"Sync: removing PDF {pdf.id} '{pdf.title}' — no longer on Drive")
+                        pdf.delete()
+                        pdf_deleted_count += 1
+
+                # 5c – Import new PDFs from Drive → DB
+                remaining_pdf_file_ids = set(
+                    PDFDocument.objects.filter(**pdf_filter).values_list('file_id', flat=True)
+                )
+
+                for drive_pdf in drive_pdfs:
+                    file_id = drive_pdf.get('id')
+                    if file_id in remaining_pdf_file_ids:
+                        continue
+
+                    PDFDocument.objects.create(
+                        user=request.user,
+                        category=organization.category,
+                        organization=organization,
+                        chapter=chapter,
+                        title=drive_pdf.get('name', 'Untitled.pdf'),
+                        file_id=file_id,
+                        drive_folder_id=drive_pdf.get('drive_folder_id'),
+                        folder_path=folder_path,
+                        file_size=int(drive_pdf.get('size', 0)),
+                    )
+                    pdf_synced_count += 1
+
+            except Exception as e:
+                logger.warning(f"PDF sync phase failed: {e}")
+
             # Build human-readable message
             parts = []
             if synced_count:
                 parts.append(f'Added {synced_count} new video{"s" if synced_count != 1 else ""}')
             if deleted_count:
                 parts.append(f'Removed {deleted_count} deleted video{"s" if deleted_count != 1 else ""}')
+            if pdf_synced_count:
+                parts.append(f'Added {pdf_synced_count} new PDF{"s" if pdf_synced_count != 1 else ""}')
+            if pdf_deleted_count:
+                parts.append(f'Removed {pdf_deleted_count} deleted PDF{"s" if pdf_deleted_count != 1 else ""}')
             if not parts:
                 parts.append('Everything is already in sync')
             message = '. '.join(parts) + '.'
@@ -634,6 +712,8 @@ class SyncDriveVideosView(APIView):
                 'message': message,
                 'synced': synced_count,
                 'deleted': deleted_count,
+                'pdf_synced': pdf_synced_count,
+                'pdf_deleted': pdf_deleted_count,
                 'total': len(drive_files),
             }, status=status.HTTP_200_OK)
 
@@ -715,17 +795,15 @@ class PDFUploadView(APIView):
                 tmp_path = tmp.name
 
             try:
-                # Upload to Google Drive
+                # Upload PDF directly into the chapter/org folder (no subfolder)
                 drive = DriveService()
-                pdf_folder_name = os.path.splitext(title)[0]
                 if folder_path:
-                    full_path = f"{folder_path}/{pdf_folder_name}"
+                    parent_folder_id = drive.get_or_create_folder(folder_path)
                 else:
-                    full_path = pdf_folder_name
+                    parent_folder_id = os.environ.get('GOOGLE_DRIVE_FOLDER_ID')
 
-                drive_folder_id = drive.get_or_create_folder(full_path)
                 file_id = drive.upload_to_folder(
-                    tmp_path, title, drive_folder_id,
+                    tmp_path, title, parent_folder_id,
                     mime_override='application/pdf'
                 )
 
@@ -734,7 +812,7 @@ class PDFUploadView(APIView):
                     user=request.user,
                     title=title,
                     file_id=file_id,
-                    drive_folder_id=drive_folder_id,
+                    drive_folder_id=None,
                     folder_path=folder_path,
                     file_size=pdf_file.size,
                     category_id=category_id if category_id else None,
@@ -754,7 +832,10 @@ class PDFUploadView(APIView):
 
 
 class PDFListView(APIView):
-    """List PDFs for the current user, filtered by organization/chapter."""
+    """List PDFs for the current user, filtered by organization/chapter.
+    
+    Verifies each PDF still exists on Google Drive and removes stale records.
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
@@ -768,8 +849,22 @@ class PDFListView(APIView):
         if chapter_id:
             queryset = queryset.filter(chapter_id=chapter_id)
 
-        pdfs = [_build_pdf_dict(p, request) for p in queryset]
-        return Response(pdfs)
+        # Verify each PDF still exists on Drive; remove stale records
+        try:
+            drive = DriveService()
+        except Exception:
+            drive = None
+
+        valid_pdfs = []
+        for pdf in queryset:
+            if drive and pdf.file_id:
+                if not drive.file_exists(pdf.file_id):
+                    logger.info(f"PDFList: removing stale PDF {pdf.id} '{pdf.title}' — no longer on Drive")
+                    pdf.delete()
+                    continue
+            valid_pdfs.append(_build_pdf_dict(pdf, request))
+
+        return Response(valid_pdfs)
 
 
 class PDFDetailView(APIView):

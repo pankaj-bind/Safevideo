@@ -4,6 +4,12 @@
  * Uses CSS variables from index.css
  */
 
+/* pulse animation for PDF thumbnail loading placeholder */
+@keyframes pulse {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.35; }
+}
+
 /* =============================================================================
    VIDEO CARD RENAME
    ============================================================================= */
