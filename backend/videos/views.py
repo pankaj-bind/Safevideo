@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.db import models
+from django.db.models.functions import Lower
 from django.http import StreamingHttpResponse
 from django.core.cache import cache
 from .models import Video
@@ -199,7 +200,7 @@ class VideoListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
     
     def get(self, request, *args, **kwargs):
-        queryset = Video.objects.filter(user=request.user).order_by('-created_at')
+        queryset = Video.objects.filter(user=request.user).order_by(Lower('title'))
         
         # Filter by organization if provided
         organization_id = request.query_params.get('organization')
@@ -880,7 +881,7 @@ class PDFListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        queryset = PDFDocument.objects.filter(user=request.user).order_by('-created_at')
+        queryset = PDFDocument.objects.filter(user=request.user).order_by(Lower('title'))
 
         organization_id = request.query_params.get('organization')
         if organization_id:
