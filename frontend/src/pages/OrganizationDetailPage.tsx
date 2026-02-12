@@ -77,6 +77,7 @@ const NotesSection: React.FC<{
   const [notes, setNotes] = useState<Note[]>([]);
   const [noteContent, setNoteContent] = useState('');
   const [includeTimestamp, setIncludeTimestamp] = useState(false);
+  const [capturedTimestamp, setCapturedTimestamp] = useState<number | null>(null);
 
   // Load notes from localStorage
   useEffect(() => {
@@ -107,14 +108,21 @@ const NotesSection: React.FC<{
       id: Date.now().toString(),
       videoId,
       content: noteContent.trim(),
-      timestamp: includeTimestamp ? Math.floor(currentTime) : undefined,
+      timestamp: includeTimestamp && capturedTimestamp !== null ? capturedTimestamp : undefined,
       createdAt: new Date().toISOString()
     };
 
-    const updatedNotes = [newNote, ...notes];
+    const updatedNotes = [...notes, newNote].sort((a, b) => {
+      // Notes with timestamps come first, sorted by timestamp ascending
+      if (a.timestamp !== undefined && b.timestamp !== undefined) return a.timestamp - b.timestamp;
+      if (a.timestamp !== undefined) return -1;
+      if (b.timestamp !== undefined) return 1;
+      return 0;
+    });
     saveNotes(updatedNotes);
     setNoteContent('');
     setIncludeTimestamp(false);
+    setCapturedTimestamp(null);
   };
 
   const handleDeleteNote = (noteId: string) => {
@@ -195,9 +203,17 @@ const NotesSection: React.FC<{
             <input
               type="checkbox"
               checked={includeTimestamp}
-              onChange={(e) => setIncludeTimestamp(e.target.checked)}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setIncludeTimestamp(checked);
+                if (checked) {
+                  setCapturedTimestamp(Math.floor(currentTime));
+                } else {
+                  setCapturedTimestamp(null);
+                }
+              }}
             />
-            <span>Add timestamp ({formatTimestamp(currentTime)})</span>
+            <span>Add timestamp ({formatTimestamp(includeTimestamp && capturedTimestamp !== null ? capturedTimestamp : currentTime)})</span>
           </label>
           <button 
             className="notes-submit-btn"
