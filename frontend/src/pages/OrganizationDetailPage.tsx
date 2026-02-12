@@ -394,6 +394,55 @@ const VideoPlayer: React.FC<{
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
+  // Keyboard shortcuts for video player
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if user is typing in an input/textarea
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+      switch (e.key) {
+        case 'ArrowRight':
+          e.preventDefault();
+          handleSkipForward();
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          handleSkipBackward();
+          break;
+        case ' ':
+          e.preventDefault();
+          handlePlayPause();
+          break;
+        case 'm':
+        case 'M':
+          e.preventDefault();
+          handleMute();
+          break;
+        case 'f':
+        case 'F':
+          e.preventDefault();
+          handleFullscreen();
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          if (videoRef.current) {
+            videoRef.current.volume = Math.min(1, videoRef.current.volume + 0.1);
+          }
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          if (videoRef.current) {
+            videoRef.current.volume = Math.max(0, videoRef.current.volume - 0.1);
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isPlaying, isMuted, duration, currentTime]);
+
   // Handle seeking from notes
   useEffect(() => {
     if (seekToTime !== undefined && videoRef.current) {
@@ -407,11 +456,12 @@ const VideoPlayer: React.FC<{
       ref={playerContainerRef}
       className={`yt-player-container ${isTheaterMode ? 'yt-theater-mode' : ''} ${isFullscreen ? 'yt-fullscreen-mode' : ''}`}
       onMouseMove={handleMouseMove}
+      tabIndex={0}
     >
       <video
         ref={videoRef}
         className="yt-video"
-        preload="auto"
+        preload="metadata"
         crossOrigin="use-credentials"
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}

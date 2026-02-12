@@ -220,7 +220,7 @@ class DriveService:
         response = session.get(url, stream=True, headers=headers)
         response.raise_for_status()
 
-        for chunk in response.iter_content(chunk_size=1 * 1024 * 1024):
+        for chunk in response.iter_content(chunk_size=2 * 1024 * 1024):
             if chunk:
                 yield chunk
 
@@ -244,8 +244,8 @@ class DriveService:
         response = session.get(url, stream=True)
         response.raise_for_status()
         
-        # Yield 1MB chunks to the caller
-        for chunk in response.iter_content(chunk_size=1 * 1024 * 1024):
+        # Yield 2MB chunks to the caller
+        for chunk in response.iter_content(chunk_size=2 * 1024 * 1024):
             if chunk:
                 yield chunk
 

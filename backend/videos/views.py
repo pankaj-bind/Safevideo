@@ -256,8 +256,8 @@ class StreamVideoView(APIView):
     """
     permission_classes = [permissions.IsAuthenticated]
 
-    # Cap open-ended range requests to 2 MB so the first response is fast
-    INITIAL_CHUNK_CAP = 2 * 1024 * 1024  # 2 MB
+    # Cap open-ended range requests to 5 MB so the first response is fast
+    INITIAL_CHUNK_CAP = 5 * 1024 * 1024  # 5 MB
 
     def get(self, request, file_id):
         try:
@@ -316,6 +316,7 @@ class StreamVideoView(APIView):
 
             response['Accept-Ranges'] = 'bytes'
             response['Content-Disposition'] = 'inline; filename="video.mp4"'
+            response['Cache-Control'] = 'private, max-age=3600'
             return response
         except Exception as e:
             logger.error(f"Stream error: {e}")

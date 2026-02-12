@@ -37,6 +37,48 @@ const VideoPlayerLayout: React.FC<VideoPlayerLayoutProps> = ({ videoSrc, title, 
     localStorage.setItem(notesStorageKey, notes);
   }, [notesStorageKey, notes]);
 
+  // Keyboard shortcuts for video player
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+      const v = videoRef.current;
+      if (!v) return;
+
+      switch (e.key) {
+        case 'ArrowRight':
+          e.preventDefault();
+          v.currentTime = Math.min(v.currentTime + 10, v.duration || 0);
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          v.currentTime = Math.max(v.currentTime - 10, 0);
+          break;
+        case ' ':
+          e.preventDefault();
+          v.paused ? v.play() : v.pause();
+          break;
+        case 'm':
+        case 'M':
+          e.preventDefault();
+          v.muted = !v.muted;
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          v.volume = Math.min(1, v.volume + 0.1);
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          v.volume = Math.max(0, v.volume - 0.1);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const uploadedAtText = useMemo(() => {
     if (!uploadedAt) return '';
     try {
@@ -75,7 +117,7 @@ const VideoPlayerLayout: React.FC<VideoPlayerLayoutProps> = ({ videoSrc, title, 
       <div className="watch-left">
         <div className="watch-left-scroll">
           <div className="watch-player">
-            <video ref={videoRef} controls preload="auto" crossOrigin="use-credentials">
+            <video ref={videoRef} controls preload="metadata" crossOrigin="use-credentials">
               <source src={videoSrc} type="video/mp4" />
               Your browser does not support the video tag.
             </video>
