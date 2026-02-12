@@ -28,6 +28,13 @@ const VideoPlayerLayout: React.FC<VideoPlayerLayoutProps> = ({ videoSrc, title, 
 
   const [notes, setNotes] = useState('');
 
+  // Set default playback speed to 2x
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = 2;
+    }
+  }, [videoSrc]);
+
   useEffect(() => {
     const saved = localStorage.getItem(notesStorageKey);
     if (saved) setNotes(saved);
