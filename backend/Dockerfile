@@ -27,11 +27,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Create necessary directories
+RUN mkdir -p /app/staticfiles /app/media
+
+# Collect static files (for admin, DRF browsable API, etc.)
+RUN SECRET_KEY=build-only python manage.py collectstatic --noinput 2>/dev/null || true
+
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser
 
 # Set permissions BEFORE switching to appuser
-# This ensures the mounted db.sqlite3 and other files are writable
 RUN chown -R appuser:appuser /app \
     && chmod -R 755 /app \
     && touch /app/db.sqlite3 \

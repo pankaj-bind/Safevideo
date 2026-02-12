@@ -31,9 +31,7 @@ import {
   XCircle,
   Pencil,
   Check,
-  FilePlus,
   StickyNote,
-  Save,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import PDFThumbnail from '../components/PDFThumbnail';
@@ -901,12 +899,6 @@ const VideoCard: React.FC<{
 // =============================================================================
 // CHAPTER NOTES PANEL (simple)
 // =============================================================================
-interface ChapterNoteData {
-  id?: number;
-  content: string;
-  updated_at?: string;
-}
-
 const ChapterNotesPanel: React.FC<{ chapterId: number }> = ({ chapterId }) => {
   const [content, setContent] = useState('');
   const [isSaving, setIsSaving] = useState(false);

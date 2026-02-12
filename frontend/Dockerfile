@@ -19,6 +19,9 @@ RUN npm ci --silent
 # Copy source code
 COPY . .
 
+# API URL is empty so requests go to the same origin (proxied by Nginx)
+ENV VITE_API_URL=""
+
 # Build production bundle
 RUN npm run build
 
